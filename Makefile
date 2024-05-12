@@ -61,7 +61,7 @@ fromdocker: $(BUILD_DIR)/$(TARGET)/$(EXECUTABLE)
 $(BUILD_DIR)/$(TARGET)/$(EXECUTABLE): $(OBJECTS) $(BUILD_DIR)/$(TARGET)/startup_ch32v30x_D8C.o
 	@echo Linking "  ($(CC))": $(abspath $@)
 	@$(CC) -mabi=$(ABI) $(OPT) -march=$(ARCH) $(CFLAGS) -Wl,-Map,$(EXECUTABLE).map,$(LDFLAGS) --specs=nano.specs --specs=nosys.specs  -T  $(LINKER_DIRECTORY)/Link.ld $^ $(LDLIBS) -o $@
-	@$(OBJDUMP) -S $^ > $(EXECUTABLE).lst
+	@$(OBJDUMP) -S $@ > $(EXECUTABLE).lst
 	@$(OBJCOPY) -O ihex $(BUILD_DIR)/$(TARGET)/$(EXECUTABLE) $(BUILD_DIR)/$(TARGET)/$(EXECUTABLE).hex
 
 
@@ -78,9 +78,10 @@ $(OBJS_DIR)/%.o : $(dir $*)/%.c
 # Auto-generated dependency files included as rules
 -include $(OBJECTS:.o=.d)
 
-flash:	
-	$(OPENOCD) -f $(OCD_CFG) -c init -c halt -c "program $(BUILD_DIR)/$(TARGET)/$(EXECUTABLE).hex verify" -c wlink_reset_resume -c exit
-	../MounRiver_Studio_Community_Linux_x64_V140/MRS_Community/toolchain/OpenOCD/bin/openocd -f ../MounRiver_Studio_Community_Linux_x64_V140/MRS_Community/toolchain/OpenOCD/bin/wch-riscv.cfg -c init  -c reset -c exit
+flash: $(BUILD_DIR)/$(TARGET)/$(EXECUTABLE)
+	$(OPENOCD) -f $(OCD_CFG) -c init -c halt -c "program $(BUILD_DIR)/$(TARGET)/$(EXECUTABLE).hex verify" -c wlink_reset_resume -c 'reset run' -c exit
+	wlink reset && wlink resume
+#	../MounRiver_Studio_Community_Linux_x64_V140/MRS_Community/toolchain/OpenOCD/bin/openocd -f ../MounRiver_Studio_Community_Linux_x64_V140/MRS_Community/toolchain/OpenOCD/bin/wch-riscv.cfg -c init  -c reset -c exit
 
 clean:
 	@echo Deleting contents of $(BUILD_DIR)/$(TARGET)

@@ -15,15 +15,15 @@ CFLAGS       :=
 CXXFLAGS     :=
 CFLAGS       := -Wall -nostartfiles  -msmall-data-limit=8 -msave-restore -Os -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections -fno-common -Xlinker --gc-sections 
 LDFLAGS      := -static
-TOOLCHAIN_PREFIX := riscv-none-embed-
+TOOLCHAIN_PREFIX := riscv32-unknown-elf-
 AS := $(TOOLCHAIN_PREFIX)as
 CC := $(TOOLCHAIN_PREFIX)gcc
 OBJCOPY := $(TOOLCHAIN_PREFIX)objcopy
 OBJDUMP := $(TOOLCHAIN_PREFIX)objdump
-OPENOCD := PATHTO_WCH/riscv-openocd-wch/src/openocd
-OCD_CFG := PATHTO_WCH_OCD_CONFIG/wch/wch-riscv.cfg
-ARCH := rv32imaf
-ABI  := ilp32f
+OPENOCD := $(HOME)/src/pico/_ch522/openocd_wchlink/riscv-openocd/inst/bin/openocd
+OCD_CFG := $(HOME)/src/pico/_ch522/openocd_wchlink/riscv-openocd/inst/bin/wch-riscv.cfg
+ARCH := rv32imafc
+ABI  := ilp32
 
 
 LINKER_DIRECTORY := $(SDK_LOCATION)/Ld
