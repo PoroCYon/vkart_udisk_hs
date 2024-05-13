@@ -63,6 +63,7 @@ static void do_reset();
 #define DATA_WRITE  	1
 
 #define SET_MASK(A, B, mask) ( (A & ~mask) | (B & mask) )
+#define WAIT_SOME() asm volatile("nop;nop;nop;nop;nop;nop;nop;nop;nop":::"memory")
 
 enum {
 	REGULAR = 0,
@@ -202,10 +203,14 @@ static uint16_t get_data(void) {
 static void write_word(uint32_t addr, uint16_t word) {
 	set_ce(1);
 	set_rw(0);
+	WAIT_SOME();
 	set_data_dir(DATA_WRITE);
 	set_address(addr);
+	WAIT_SOME();
 	set_ce(0);
+	WAIT_SOME();
 	set_data(word);
+	WAIT_SOME();
 	set_ce(1);
 }
 static void write_word_mx2(uint32_t addr, uint16_t d1) {
@@ -302,7 +307,9 @@ static uint16_t read_word(uint32_t addr) {
 	set_ce(1);
 	set_rw(1);
 	set_address(addr);
+	WAIT_SOME();
 	set_ce(0);
+	WAIT_SOME();
 	ret = get_data();
 	//iprintf("[vkart] read %04x\r\n", ret);
 	return ret;

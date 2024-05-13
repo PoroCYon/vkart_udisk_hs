@@ -32,32 +32,30 @@
 // Forward USB interrupt events to TinyUSB IRQ Handler
 //--------------------------------------------------------------------+
 
-void USBHS_IRQHandler (void)
-{
+__attribute__((interrupt("WCH-Interrupt-fast"), __naked__))
+void USBHS_IRQHandler(void) {
   __asm volatile ("call USBHS_IRQHandler_impl; mret");
 }
 
-__attribute__ ((used)) void USBHS_IRQHandler_impl (void)
-{
+__attribute__((used)) void USBHS_IRQHandler_impl(void) {
   tud_int_handler(0);
 }
 
 void tusb_family_init(void) {
+	/* Disable interrupts during init */
+	__disable_irq();
 
-  /* Disable interrupts during init */
-  __disable_irq();
+	RCC_USBCLK48MConfig(RCC_USBCLK48MCLKSource_USBPHY);
+	RCC_USBHSPLLCLKConfig(RCC_HSBHSPLLCLKSource_HSE);
+	RCC_USBHSConfig(RCC_USBPLL_Div2);
+	RCC_USBHSPLLCKREFCLKConfig(RCC_USBHSPLLCKREFCLK_4M);
+	RCC_USBHSPHYPLLALIVEcmd(ENABLE);
+	RCC_AHBPeriphClockCmd(RCC_AHBPeriph_USBHS, ENABLE);
 
-  RCC_USBCLK48MConfig(RCC_USBCLK48MCLKSource_USBPHY);
-  RCC_USBHSPLLCLKConfig(RCC_HSBHSPLLCLKSource_HSE);
-  RCC_USBHSConfig(RCC_USBPLL_Div2);
-  RCC_USBHSPLLCKREFCLKConfig(RCC_USBHSPLLCKREFCLK_4M);
-  RCC_USBHSPHYPLLALIVEcmd(ENABLE);
-  RCC_AHBPeriphClockCmd(RCC_AHBPeriph_USBHS, ENABLE);
+	/* Enable interrupts globally */
+	__enable_irq();
 
-  /* Enable interrupts globally */
-  __enable_irq();
-
-  Delay_Ms(2);
+	Delay_Ms(2);
 }
 
 #ifdef USE_FULL_ASSERT
@@ -75,5 +73,6 @@ void assert_failed(char* file, uint32_t line) {
      tex: iprintf("Wrong parameters value: file %s on line %d\r\n", file, line)
    */
   /* USER CODE END 6 */
+	iprintf("[USB] Wrong parameters value: file %s on line %d\r\n", file, line);
 }
 #endif /* USE_FULL_ASSERT */

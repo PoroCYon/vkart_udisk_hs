@@ -70,6 +70,4 @@ void led_blinker_init(void) {
 	// start the timer (with autoreload)
 	TIMER->CTLR1 = TIM_ARPE | TIM_CEN;
 }
-void led_blinker_task(void) {
-}
 

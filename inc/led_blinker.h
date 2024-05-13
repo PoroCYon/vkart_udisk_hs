@@ -13,7 +13,6 @@ enum led_interval {
 void led_blinker_set(enum led_interval itv);
 
 void led_blinker_init(void);
-void led_blinker_task(void);
 
 #endif
 

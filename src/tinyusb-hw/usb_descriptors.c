@@ -38,6 +38,26 @@
                            _PID_MAP(MIDI, 3) | _PID_MAP(VENDOR, 4) )
 
 //--------------------------------------------------------------------+
+// Configuration Descriptor
+//--------------------------------------------------------------------+
+
+enum {
+	ITF_NUM_DFU_MODE = 0,
+	ITF_NUM_TOTAL
+};
+
+enum {
+	STRID_LANGID = 0,
+	STRID_MANUFACTURER,
+	STRID_PRODUCT,
+	STRID_SERIAL,
+	STRID_DFU_PARTITION_BASE
+};
+
+
+#define CONFIG_TOTAL_LEN    (TUD_CONFIG_DESC_LEN + TUD_DFU_DESC_LEN(ALT_COUNT))
+
+//--------------------------------------------------------------------+
 // Device Descriptors
 //--------------------------------------------------------------------+
 static tusb_desc_device_t const desc_device =
@@ -64,38 +84,12 @@ static tusb_desc_device_t const desc_device =
     .idProduct          = USB_PID,
     .bcdDevice          = 0x0100,
 
-    .iManufacturer      = 0x01,
-    .iProduct           = 0x02,
-    .iSerialNumber      = 0x03,
+    .iManufacturer      = STRID_MANUFACTURER,
+    .iProduct           = STRID_PRODUCT,
+    .iSerialNumber      = STRID_SERIAL,
 
     .bNumConfigurations = 0x01
 };
-
-// Invoked when received GET DEVICE DESCRIPTOR
-// Application return pointer to descriptor
-uint8_t const * tud_descriptor_device_cb(void) {
-	return (uint8_t const *) &desc_device;
-}
-
-//--------------------------------------------------------------------+
-// Configuration Descriptor
-//--------------------------------------------------------------------+
-
-enum {
-	ITF_NUM_DFU_MODE = 0,
-	ITF_NUM_TOTAL
-};
-
-enum {
-	STRID_LANGID = 0,
-	STRID_MANUFACTURER,
-	STRID_PRODUCT,
-	STRID_SERIAL,
-	STRID_DFU_PARTITION_BASE
-};
-
-
-#define CONFIG_TOTAL_LEN    (TUD_CONFIG_DESC_LEN + TUD_DFU_DESC_LEN(ALT_COUNT))
 
 #define FUNC_ATTRS (DFU_ATTR_CAN_UPLOAD | DFU_ATTR_CAN_DOWNLOAD | DFU_ATTR_MANIFESTATION_TOLERANT)
 
@@ -106,6 +100,13 @@ static uint8_t const desc_configuration[] = {
 	// Interface number, Alternate count, starting string index, attributes, detach timeout, transfer size
 	TUD_DFU_DESCRIPTOR(ITF_NUM_DFU_MODE, ALT_COUNT, STRID_DFU_PARTITION_BASE, FUNC_ATTRS, 1000, CFG_TUD_DFU_XFER_BUFSIZE),
 };
+
+
+// Invoked when received GET DEVICE DESCRIPTOR
+// Application return pointer to descriptor
+uint8_t const * tud_descriptor_device_cb(void) {
+	return (uint8_t const *) &desc_device;
+}
 
 // Invoked when received GET CONFIGURATION DESCRIPTOR
 // Application return pointer to descriptor

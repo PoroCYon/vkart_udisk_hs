@@ -2,3 +2,4 @@ _nop/
 /bin/
 *.lst
 *.map
+*.bin
