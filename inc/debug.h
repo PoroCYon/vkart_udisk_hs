@@ -11,8 +11,7 @@
 #ifndef __DEBUG_H
 #define __DEBUG_H
 
-#include "stdio.h"
-#include "ch32v30x.h"
+#include <stdint.h>
 
 /* UART Printf Definition */
 #define DEBUG_UART1    1

@@ -8,6 +8,9 @@
 * Copyright (c) 2021 Nanjing Qinheng Microelectronics Co., Ltd.
 * SPDX-License-Identifier: Apache-2.0
 *******************************************************************************/
+#include "stdio.h"
+#include "ch32v30x.h"
+
 #include "debug.h"
 
 static uint8_t  p_us = 0;

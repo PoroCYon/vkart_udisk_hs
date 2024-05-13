@@ -1,7 +1,26 @@
+
 #include "ch32v30x.h"
 #include "vkart_flash.h"
-/*#include "SW_UDISK.h"*/
 
+#include <stdio.h>
+
+uint16_t vkart_data_buffer[VKART_BUFFER_WORDSZ];
+
+
+static void set_ce(uint8_t state);
+static void set_rw(uint8_t state);
+static void set_data_dir(uint8_t state);
+static void set_address(uint32_t address);
+static void set_data(uint16_t data);
+static uint16_t get_data(void);
+static void write_word(uint32_t address, uint16_t word);
+static void write_word_mx(uint32_t addr, uint16_t d1);
+static void write_word_29w(uint32_t addr, uint16_t d1, uint16_t d2);
+static void erase_block(uint32_t addr);
+static void erase_chip();
+static uint16_t read_word(uint32_t address);
+static uint16_t get_device_id(void);
+static void do_reset();
 
 /*
  * MX commands
@@ -58,17 +77,17 @@ enum {
 };
 
 typedef enum {
-		Success,
-		AddressInvalid,
-		EraseFailed,
-		ProgramFailed,
-		ProgramAbort,
-		ToggleFailed,
-		OperationTimeOut,
-		InProgress,
-		Cmd_Invalid,
-		SectorProtected,
-		SectorUnprotected
+	Success,
+	AddressInvalid,
+	EraseFailed,
+	ProgramFailed,
+	ProgramAbort,
+	ToggleFailed,
+	OperationTimeOut,
+	InProgress,
+	Cmd_Invalid,
+	SectorProtected,
+	SectorUnprotected
 } ret_msg;
 
 uint8_t vkart_sectors[135];
@@ -78,7 +97,7 @@ int8_t support_double = 0;
 uint16_t device_id;
 
 
-void VKART_Init(void) {
+bool VKART_Init(void) {
     //GPIO_InitTypeDef  GPIO_InitStructure = {0};
     RCC_APB2PeriphClockCmd(
         RCC_APB2Periph_USART1 | 
@@ -92,10 +111,10 @@ void VKART_Init(void) {
     // Address Low
     GPIOC->CFGLR = 0x44444444;
     GPIOC->CFGHR = 0x44444444;
-        
+
     // Adress Hi
     GPIOB->CFGHR = SET_MASK(GPIOB->CFGHR, 0x44444400, 0xffffff00);
-        
+
     // Control
     GPIOE->CFGLR |= 0x00000333;
     GPIOE->CFGLR = 0x44444333;
@@ -104,7 +123,8 @@ void VKART_Init(void) {
     for(int s = 0; s < 135 ; ++s) vkart_sectors[s]=UNKNOWN;
 
 	do_reset();
-	printf("device id %04x\r\n", device_id = get_device_id());
+	//Delay_Ms(10);
+	iprintf("[vkart] device id %04x\r\n", device_id = get_device_id());
     if (device_id == 0x22cb || device_id == 0x22e9) { // Macronix
 	    if (device_id == 0x22cb) {
 			flash_layout = BOTTOM;
@@ -126,103 +146,97 @@ void VKART_Init(void) {
 		}
 		support_double = 1;
 	}
-	printf("flash layout : %d.%d\r\n", flash_layout, top_bottom);
+	iprintf("[vkart] flash layout : %d.%d\r\n", flash_layout, top_bottom);
+
+	if (device_id == 0x0000) return false;
+
 	do_reset();
+	Delay_Ms(10);
 
-}
-
-void set_ce(uint8_t state) {
-        if (state) {
-                GPIOE->BSHR = 0x00000002; // 00000000 00000000 00000000 00000010
-        } else {
-                GPIOE->BSHR = 0x00020000; // 00000000 00000010 00000000 00000000
-        }
-}
-void set_rw(uint8_t state) {
-        if (state) {
-                GPIOE->BSHR = 0x00000001;
-        } else {
-                GPIOE->BSHR = 0x00010000;
-        }
-}
-void led(uint8_t state) {
-        GPIOE->CFGLR |= 0x00000300;
-        if (state) {
-                GPIOE->BSHR = 0x00040000;
-                //GPIO_WriteBit(GPIOE, GPIO_Pin_2, Bit_SET);
-        } else {
-                //GPIOE->CFGLR |= 0x00000300;
-                GPIOE->BSHR = 0x00000004;
-                //GPIO_WriteBit(GPIOE, GPIO_Pin_2, Bit_RESET);
-        }
-}
-void set_data_dir(uint8_t state) {
-        if (state) {
-                GPIOD->CFGLR = 0x33333333; // output
-                GPIOD->CFGHR = 0x33333333;
-        } else {
-                GPIOD->CFGLR = 0x44444444; // input
-                GPIOD->CFGHR = 0x44444444;
-        }
-}
-void set_address(uint32_t addr) {
-        GPIOC->CFGLR = 0x33333333;
-        GPIOC->CFGHR = 0x33333333;
-        //GPIOB->CFGLR = 0x33333333;
-        //GPIOB->CFGHR ^= 0x33333300 ^ 0xffffff00;
-        GPIOB->CFGHR = SET_MASK(GPIOB->CFGHR, 0x33333300, 0xffffff00);
-        GPIO_Write(GPIOC, addr);
-		// 1111110000000000
-		int mask = 0xfc00;
-        //GPIOB->OUTDR ^= ((addr >> 16) << 10) ^ 0xfc00;
-		//GPIOB->OUTDR = (GPIOB->OUTDR & ~mask) | (((addr>>16)<<10) & mask);
-		GPIOB->OUTDR = SET_MASK(GPIOB->OUTDR, (addr >> 16) << 10, mask);
-		//out = (in & ~mask) | (val & mask);
-}
-void set_data(uint16_t data) {
-        GPIO_Write(GPIOD, data);
-}
-uint16_t get_data(void) {
-        return GPIO_ReadInputData(GPIOD);
-}
-void write_word(uint32_t addr, uint16_t word) {
-        set_ce(1);
-        set_rw(0);
-        set_data_dir(DATA_WRITE);
-        set_address(addr);
-        set_ce(0);
-        set_data(word);
-        set_ce(1);
-}
-void write_word_mx2(uint32_t addr, uint16_t d1) {
-		do_reset();
+	return true;
 }
 
-ret_msg data_toggle(void) {
+static void set_ce(uint8_t state) {
+	if (state) {
+		GPIOE->BSHR = 0x00000002; // 00000000 00000000 00000000 00000010
+	} else {
+		GPIOE->BSHR = 0x00020000; // 00000000 00000010 00000000 00000000
+	}
+}
+static void set_rw(uint8_t state) {
+	if (state) {
+		GPIOE->BSHR = 0x00000001;
+	} else {
+		GPIOE->BSHR = 0x00010000;
+	}
+}
+static void set_data_dir(uint8_t state) {
+	if (state) {
+		GPIOD->CFGLR = 0x33333333; // output
+		GPIOD->CFGHR = 0x33333333;
+	} else {
+		GPIOD->CFGLR = 0x44444444; // input
+		GPIOD->CFGHR = 0x44444444;
+	}
+}
+static void set_address(uint32_t addr) {
+	GPIOC->CFGLR = 0x33333333;
+	GPIOC->CFGHR = 0x33333333;
+	//GPIOB->CFGLR = 0x33333333;
+	//GPIOB->CFGHR ^= 0x33333300 ^ 0xffffff00;
+	GPIOB->CFGHR = SET_MASK(GPIOB->CFGHR, 0x33333300, 0xffffff00);
+	GPIO_Write(GPIOC, addr);
+	// 1111110000000000
+	int mask = 0xfc00;
+	//GPIOB->OUTDR ^= ((addr >> 16) << 10) ^ 0xfc00;
+	//GPIOB->OUTDR = (GPIOB->OUTDR & ~mask) | (((addr>>16)<<10) & mask);
+	GPIOB->OUTDR = SET_MASK(GPIOB->OUTDR, (addr >> 16) << 10, mask);
+	//out = (in & ~mask) | (val & mask);
+}
+static void set_data(uint16_t data) {
+	GPIO_Write(GPIOD, data);
+}
+static uint16_t get_data(void) {
+	return GPIO_ReadInputData(GPIOD);
+}
+static void write_word(uint32_t addr, uint16_t word) {
+	set_ce(1);
+	set_rw(0);
+	set_data_dir(DATA_WRITE);
+	set_address(addr);
+	set_ce(0);
+	set_data(word);
+	set_ce(1);
+}
+static void write_word_mx2(uint32_t addr, uint16_t d1) {
+	do_reset();
+}
+
+static ret_msg data_toggle(void) {
 	uint8_t tog1, tog2;
 
 	tog1 = read_word(0);
 	tog2 = read_word(0);
 
 	if ((tog1 & 0x40) == (tog2 & 0x40)) {
-			return Success;
+		return Success;
 	}
 	if ((tog2 & 0x20) != 0x20) {
-			return InProgress;
+		return InProgress;
 	}
 	tog1 = read_word(0);
 	tog2 = read_word(0);
 	if ((tog1 & 0x40) == (tog2 & 0x40)) {
-			return Success;
+		return Success;
 	} else {
-			return ToggleFailed;
+		return ToggleFailed;
 	}
 }
 
 
-void write_word_mx(uint32_t addr, uint16_t d1) {
-		uint8_t t1,t2;
-    //if (d1) printf("writing %04x at %08x\r\n", d1, addr);
+static void write_word_mx(uint32_t addr, uint16_t d1) {
+	uint8_t t1,t2;
+	//if (d1) iprintf("[vkart] writing %04x at %08x\r\n", d1, addr);
 //	if (d1 != 0xffff) {
 		write_word(0x0555,0xAA);
 		write_word(0x02AA,0x55);
@@ -230,47 +244,47 @@ void write_word_mx(uint32_t addr, uint16_t d1) {
 		write_word(addr, d1);
 		//Delay_Us(13); // typical 11us
 		while (1) {
-				t1 = read_word(0);
-				t2 = read_word(0);
-				//printf("%d %d\r\n", t1, t2);
-				if ((t1 & 0x40) == (t2 & 0x40)) break;
+			t1 = read_word(0);
+			t2 = read_word(0);
+			//iprintf("%d %d\r\n", t1, t2);
+			if ((t1 & 0x40) == (t2 & 0x40)) break;
 		}
 //	}
-    //check_status();
+	//check_status();
 }
-void write_word_29w(uint32_t addr, uint16_t d1, uint16_t d2) {
-    write_word(0x0555,0x0050);
-    write_word(addr, d1);
-    write_word(addr+1, d2);
+static void write_word_29w(uint32_t addr, uint16_t d1, uint16_t d2) {
+	write_word(0x0555,0x0050);
+	write_word(addr, d1);
+	write_word(addr+1, d2);
 	//while ((read_word(0)&0x40) != (read_word(0)&0x40));
-    Delay_Us(20); // typical 10us
+	Delay_Us(20); // typical 10us
 }
-void erase_block(uint32_t addr) {
-		do_reset();
-		write_word(0x0555, 0xaa);
-		write_word(0x02aa, 0x55);
-		write_word(0x0555, 0x80);
-		write_word(0x0555, 0xaa);
-		write_word(0x02aa, 0x55);
-		write_word(addr, 0x30);
-			
-		uint8_t q = 0;
-		/*
-		set_data_dir(DATA_READ);
-		while (1) {
-			q = read_word(addr);
-			if ((q & 0x08) != 0) break;
-		}
-		while (1) {
-			q = read_word(addr);
+static void erase_block(uint32_t addr) {
+	do_reset();
+	write_word(0x0555, 0xaa);
+	write_word(0x02aa, 0x55);
+	write_word(0x0555, 0x80);
+	write_word(0x0555, 0xaa);
+	write_word(0x02aa, 0x55);
+	write_word(addr, 0x30);
 
-			if ((q & 0x80) != 0) {
-				// Finished
-				break;
-			}
-		} */
-		Delay_Ms(900);
-		printf("End erase block %08lx st=%02x\r\n", addr, q);
+	uint8_t q = 0;
+	/*
+	set_data_dir(DATA_READ);
+	while (1) {
+		q = read_word(addr);
+		if ((q & 0x08) != 0) break;
+	}
+	while (1) {
+		q = read_word(addr);
+
+		if ((q & 0x80) != 0) {
+			// Finished
+			break;
+		}
+	} */
+	Delay_Ms(900);
+	iprintf("[vkart] End erase block %08lx st=%02x\r\n", addr, q);
 }
 /* void erase_chip() {
     write_word(0x555, 0xaa);
@@ -280,88 +294,84 @@ void erase_block(uint32_t addr) {
     write_word(0x2aa, 0x55);
     write_word(0x555, 0x10);
     Delay_Ms(80000); // typical 80s
-    printf("chip erased in %lu cycles", check_status());
+    iprintf("[vkart] chip erased in %lu cycles", check_status());
 } */
 
-uint16_t read_word(uint32_t addr) {
-        uint16_t ret;
-        set_ce(1);
-        set_rw(1);
-        set_address(addr);
-        set_ce(0);
-        ret = get_data();
-		//printf("read %04x\r\n", ret);
-        return ret;
+static uint16_t read_word(uint32_t addr) {
+	uint16_t ret;
+	set_ce(1);
+	set_rw(1);
+	set_address(addr);
+	set_ce(0);
+	ret = get_data();
+	//iprintf("[vkart] read %04x\r\n", ret);
+	return ret;
 }
-uint16_t get_device_id() {
-        printf("-- get_device_id --\r\n");
-        write_word(0x555, 0xAA);
-        write_word(0x2AA, 0x55);
-        write_word(0x555, 0x90);
-		set_data_dir(DATA_READ);
-        return read_word(0x1);
+static uint16_t get_device_id() {
+	//iprintf("[vkart] -- get_device_id --\r\n");
+	write_word(0x555, 0xAA);
+	write_word(0x2AA, 0x55);
+	write_word(0x555, 0x90);
+	set_data_dir(DATA_READ);
+	return read_word(0x1);
 }
-void do_reset() {
-        write_word(0x0, 0x00f0);
+static void do_reset() {
+	write_word(0x0, 0x00f0);
 }
 
 void vkart_read_data(uint32_t addr, uint16_t *buff, uint32_t len) {
-    
-    set_data_dir(DATA_READ);
-    for(int i = 0; i < len; ++i) {
-        *buff++ = read_word(addr++);
-    }
+	set_data_dir(DATA_READ);
+	for(int i = 0; i < len; ++i) {
+		*buff++ = read_word(addr++);
+	}
 }
 
 void vkart_erase_sector(uint32_t addr, uint8_t block) {
-	printf("erase sector addr %08lx for %d\r\n", addr, block);
+	iprintf("[vkart] erase sector addr %08lx for %d\r\n", addr, block);
 	erase_block(addr);
 	vkart_sectors[block] = CLEAN;
 	do_reset();
 }
 
-void display_blocks() {
+static void display_blocks() {
 	int s = 0;
 	char c = 0;
 	for(int i = 0 ; i < 8; i++) {
 		for(int j = 0; j < 17; j++) {
-				s = vkart_sectors[i*17 + j];
-				if (s == UNKNOWN) c = '?';
-				if (s == CLEAN) c = 'c';
-				if (s == DIRTY) c = 'X';
-				printf("%c ", c);
+			s = vkart_sectors[i*17 + j];
+			if (s == UNKNOWN) c = '?';
+			if (s == CLEAN) c = 'c';
+			if (s == DIRTY) c = 'X';
+			iprintf("%c ", c);
 		}
-		printf("\r\n");
+		iprintf("\r\n");
 	}
 }
-void vkart_debug(void) {
-		printf("debug function");
-}
 
-void vkart_write_block2(uint16_t *pbuf, uint32_t addr, uint32_t len) {
-	printf("vkart_write_block at %08lx %ld words\r\n", addr, len);
+/*void vkart_write_block2(uint16_t *pbuf, uint32_t addr, uint32_t len) {
+	iprintf("[vkart] vkart_write_block at %08lx %ld words\r\n", addr, len);
 	for(int i = 0; i < len; i++) {
-		//if (i % 16 == 0) printf("%08lx: ", (addr+i));
-		//printf("%04x ",  pbuf[i]);
-		//if (i % 16 == 15) printf("\r\n");
-		//printf("prog %08lx with %04x\r\n", addr+i, pbuf[i]);
+		//if (i % 16 == 0) iprintf("%08lx: ", (addr+i));
+		//iprintf("%04x ",  pbuf[i]);
+		//if (i % 16 == 15) iprintf("\r\n");
+		//iprintf("prog %08lx with %04x\r\n", addr+i, pbuf[i]);
 		write_word_mx(addr+i, pbuf[i]);
 	}
 
-}
+}*/
 void vkart_write_block(uint16_t *pbuf, uint32_t addr, uint32_t len) {
 	uint8_t dirty = 0;
-    uint8_t block = addr >> 15;
+	uint8_t block = addr >> 15;
 	uint32_t block_len = 0x8000;
 	//if (addr > 0x3000) return;
-	printf("vkart_write_block at %08lx %ld words\r\n", addr, len);
+	iprintf("[vkart] vkart_write_block at %08lx %ld words\r\n", addr, len);
 
 	if (flash_layout == BOTTOM) {
 		if (block == top_bottom) {
-				block = addr >> 12;
-				block_len = 0x1000;
+			block = addr >> 12;
+			block_len = 0x1000;
 		} else {
-				block += 7;
+			block += 7;
 		}
 	}
 	if (flash_layout == TOP) {
@@ -371,55 +381,58 @@ void vkart_write_block(uint16_t *pbuf, uint32_t addr, uint32_t len) {
 		}
 	}
 	uint8_t same = 0;
-	for(int i = 0; i < len; i++) {
+	for (uint32_t i = 0; i < len; i++) {
 		same = (read_word(addr+i) == pbuf[i]);
 		if (!same) break;
 	}
 	if (same) {
-		printf("same buffer at %08lx\r\n", addr);
+		iprintf("[vkart] same buffer at %08lx\r\n", addr);
 		return;
 	}
 
 	if (vkart_sectors[block] != CLEAN) {
 		uint16_t w;
-		for(int i = 0; i < block_len; i++) {
+		// start index of loop: allow writing only parts of a block (so you
+		// don't have to buffer the entire thing), while still only doing block
+		// erasures at appropriate times
+		for (uint32_t i = addr & (block_len-1); i < block_len; i++) {
 			w = read_word(addr + i);
 			if (w != 0xffff) {
-				printf("dirty word %04x at pos %d in block %d\r\n", w, i, block);
+				iprintf("[vkart] dirty word %04x at pos %lu in block %d\r\n", w, i, block);
 				dirty = 1;
 				break;
 			}
 		}
 		if (dirty) {
-			printf("block %d is dirty\r\n", block);
+			iprintf("[vkart] block %d is dirty\r\n", block);
 			vkart_sectors[block] = DIRTY;
 		} else {
-			printf("block %d is clean\r\n", block);
+			iprintf("[vkart] block %d is clean\r\n", block);
 			vkart_sectors[block] = CLEAN;
 		}
 	}
 	if (vkart_sectors[block] == DIRTY) {
-		printf("vkart_erase_sector(%lx, %x)\r\n", addr, block);
+		iprintf("[vkart] vkart_erase_sector(%lx, %x)\r\n", addr, block);
 		vkart_erase_sector(addr, block);
 		vkart_sectors[block] = CLEAN;
 	}
 	//display_blocks();
 	if (support_double) {
-			printf("double\r\n");
-			for(int i = 0; i < len; i+=2) {
-				//if (i % 16 == 0) printf("%08lx: ", (addr+i));
-				//printf("%04x ",  pbuf[i]);
-				//if (i % 16 == 15) printf("\r\n");
-				//printf("prog %08lx with %04x\r\n", addr+i, pbuf[i]);
-				//printf("prog %08lx with %04x\r\n", addr+i, pbuf[i]);
-				write_word_29w(addr+i, pbuf[i], pbuf[i+1]);
-			}
+		iprintf("[vkart] double\r\n");
+		for (uint32_t i = 0; i < len; i+=2) {
+			//if (i % 16 == 0) iprintf("%08lx: ", (addr+i));
+			//iprintf("%04x ",  pbuf[i]);
+			//if (i % 16 == 15) iprintf("\r\n");
+			//iprintf("prog %08lx with %04x\r\n", addr+i, pbuf[i]);
+			//iprintf("prog %08lx with %04x\r\n", addr+i, pbuf[i]);
+			write_word_29w(addr+i, pbuf[i], pbuf[i+1]);
+		}
 	} else {
-			printf("single\r\n");
-			for(int i = 0; i < len; i++) {
-				write_word_mx(addr+i, pbuf[i]);
-			} 
+		iprintf("[vkart] single\r\n");
+		for (uint32_t i = 0; i < len; i++) {
+			write_word_mx(addr+i, pbuf[i]);
+		}
 	}
-	printf("prog %ld words done at %08lx\r\n", len, addr);
-    
+	iprintf("[vkart] prog %ld words done at %08lx\r\n", len, addr);
 }
+

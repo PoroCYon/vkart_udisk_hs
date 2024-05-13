@@ -16,8 +16,13 @@
  * Flash, selected by STORAGE_MEDIUM at SW_UDISK.h.
  *  */
 
+#include <stdio.h>
+
 #include "debug.h"
 #include "vkart_flash.h"
+#include "ch32v30x.h"
+#include "led_blinker.h"
+#include "tusb_app.h"
 
 /*********************************************************************
  * @fn      main
@@ -26,32 +31,38 @@
  *
  * @return  none
  */
-int main(void)
-{
-	SystemCoreClockUpdate( );
-	Delay_Init( );
+int main(void) {
+	SystemCoreClockUpdate();
+	Delay_Init();
 
-	USART_Printf_Init( 115200 );
+	USART_Printf_Init(115200);
 
-	printf( "SystemClk:%ld\r\n",SystemCoreClock );
-	//printf( "ChipID:%08x\r\n", DBGMCU_GetCHIPID() );
-	printf( "This program is a Simulate UDisk\r\n" );
+	//iprintf("SystemClk:%ld\r\n",SystemCoreClock);
+	//iprintf("ChipID:%08x\r\n", DBGMCU_GetCHIPID());
 
 	Delay_Ms(10);
-	printf("USBD Udisk\r\nStorage Medium: VKART Flash\r\n");
-	VKART_Init();
+	iprintf("USBD Udisk\r\nStorage Medium: VKART Flash\r\n");
 
-	RCC->APB2PCENR |= RCC_APB2Periph_GPIOE;
+	if (!VKART_Init()) {
+		iprintf("ERROR: flash detection failed, this is bad!!!\r\n");
 
-	// GPIO E2 Push-Pull
-	GPIOE->CFGLR &= ~((uint32_t)0x0F<<(4*2));
-	GPIOE->CFGLR |= (uint32_t)(GPIO_Speed_10MHz | GPIO_Mode_Out_PP)<<(4*2);
+		/*uint16_t rv[512];
+		vkart_read_data(0x4000, rv, 512);
+		for (size_t i = 0; i < 512; ++i) {
+			iprintf("%04x: %04x\r\n", i, rv[i]);
+		}*/
+
+		led_blinker_init();
+		led_blinker_set(led_error);
+		while (1) asm volatile("":::"memory");
+	}
+
+	led_blinker_init();
+	//tusb_app_init();
 
 	while(1) {
-		GPIOE->BSHR = (1<<2);    // Turn on GPIO
-		Delay_Ms( 1000 );
-		GPIOE->BSHR = (1<<(16+2)); // Turn off GPIO
-		Delay_Ms( 1000 );
+		//tusb_app_task();
+		led_blinker_task();
 	}
 }
 
