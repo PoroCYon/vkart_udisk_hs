@@ -190,7 +190,6 @@ void tud_dfu_manifest_cb(uint8_t alt) {
 		state.curblkacc = 0;
 	}
 
-	//tud_dfu_finish_flashing(DFU_STATUS_OK);
 	bool verify_good = true; // TODO: implement this lmao
 
 	deinit_download();

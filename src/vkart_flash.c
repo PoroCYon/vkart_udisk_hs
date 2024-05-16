@@ -3,6 +3,7 @@
 #include "vkart_flash.h"
 #include "critical.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 
 uint16_t vkart_data_buffer[VKART_BUFFER_WORDSZ];
@@ -378,73 +379,84 @@ void vkart_write_block(uint16_t *pbuf, uint32_t addr, uint32_t len) {
 	//if (addr > 0x3000) return;
 	iprintf("[vkart] vkart_write_block at %08lx %ld words\r\n", addr, len);
 
-	if (flash_layout == BOTTOM) {
-		if (block == top_bottom) {
-			block = addr >> 12;
-			block_len = 0x1000;
-		} else {
-			block += 7;
-		}
-	}
-	if (flash_layout == TOP) {
-		if (block == top_bottom) {
-			block += (addr >> 12) & 7;
-			block_len = 0x1000;
-		}
-	}
-	uint8_t same = 0;
-	for (uint32_t i = 0; i < len; i++) {
-		same = (read_word(addr+i) == pbuf[i]);
-		if (!same) break;
-	}
-	if (same) {
-		iprintf("[vkart] same buffer at %08lx\r\n", addr);
-		return;
-	}
+	if (len < 2) return;
 
-	if (vkart_sectors[block] != CLEAN) {
-		uint16_t w;
-		// start index of loop: allow writing only parts of a block (so you
-		// don't have to buffer the entire thing), while still only doing block
-		// erasures at appropriate times
-		for (uint32_t i = addr & (block_len-1); i < block_len; i++) {
-			w = read_word(addr + i);
-			if (w != 0xffff) {
-				iprintf("[vkart] dirty word %04x at pos %lu in block %d\r\n", w, i, block);
-				dirty = 1;
-				break;
+	for (uint32_t len_do; len != 0; len -= len_do, addr += len_do) {
+		set_data_dir(DATA_READ);
+		if (flash_layout == BOTTOM) {
+			if (block == top_bottom) {
+				block = addr >> 12;
+				block_len = 0x1000;
+			} else {
+				block += 7;
 			}
 		}
-		if (dirty) {
-			iprintf("[vkart] block %d is dirty\r\n", block);
+		if (flash_layout == TOP) {
+			if (block == top_bottom) {
+				block += (addr >> 12) & 7;
+				block_len = 0x1000;
+			}
+		}
+
+		len_do = len;
+		if (len_do > block_len) len_do = block_len;
+
+		bool same;
+		for (uint32_t i = 0; i < len; i++) {
+			same = read_word(addr+i) == pbuf[i];
+			if (!same) break;
+		}
+		if (same) {
+			iprintf("[vkart] same buffer at %08lx\r\n", addr);
+			break;
+		}
+
+		iprintf("[vkart] block %u sector type %u\r\n", block, vkart_sectors[block]);
+		if (vkart_sectors[block] != CLEAN) {
+			uint16_t w;
+			// start index of loop: allow writing only parts of a block (so you
+			// don't have to buffer the entire thing), while still only doing block
+			// erasures at appropriate times
+			for (uint32_t i = addr & (block_len-1); i < block_len; i++) {
+				w = read_word(addr + i);
+				if (w != 0xffff) {
+					iprintf("[vkart] dirty word %04x at pos %lu in block %d\r\n", w, i, block);
+					dirty = 1;
+					break;
+				}
+			}
+			if (dirty) {
+				iprintf("[vkart] block %d is dirty\r\n", block);
+				vkart_sectors[block] = DIRTY;
+			} else {
+				iprintf("[vkart] block %d is clean\r\n", block);
+				vkart_sectors[block] = CLEAN;
+			}
+		}
+		if (vkart_sectors[block] == DIRTY) {
+			//iprintf("[vkart] vkart_erase_sector(%lx, %x)\r\n", addr, block);
+			vkart_erase_sector(addr, block);
+			//vkart_sectors[block] = CLEAN;
+		}
+		//display_blocks();
+		if (support_double) {
+			iprintf("[vkart] double\r\n");
+			for (uint32_t i = 0; i < len; i+=2) {
+				//if (i % 16 == 0) iprintf("%08lx: ", (addr+i));
+				//iprintf("%04x ",  pbuf[i]);
+				//if (i % 16 == 15) iprintf("\r\n");
+				//iprintf("prog %08lx with %04x\r\n", addr+i, pbuf[i]);
+				//iprintf("prog %08lx with %04x\r\n", addr+i, pbuf[i]);
+				write_word_29w(addr+i, pbuf[i], pbuf[i+1]);
+			}
 			vkart_sectors[block] = DIRTY;
 		} else {
-			iprintf("[vkart] block %d is clean\r\n", block);
-			vkart_sectors[block] = CLEAN;
+			iprintf("[vkart] single\r\n");
+			for (uint32_t i = 0; i < len; i++) {
+				write_word_mx(addr+i, pbuf[i]);
+			}
 		}
+		iprintf("[vkart] prog %ld words done at %08lx\r\n", len, addr);
 	}
-	if (vkart_sectors[block] == DIRTY) {
-		iprintf("[vkart] vkart_erase_sector(%lx, %x)\r\n", addr, block);
-		vkart_erase_sector(addr, block);
-		vkart_sectors[block] = CLEAN;
-	}
-	//display_blocks();
-	if (support_double) {
-		iprintf("[vkart] double\r\n");
-		for (uint32_t i = 0; i < len; i+=2) {
-			//if (i % 16 == 0) iprintf("%08lx: ", (addr+i));
-			//iprintf("%04x ",  pbuf[i]);
-			//if (i % 16 == 15) iprintf("\r\n");
-			//iprintf("prog %08lx with %04x\r\n", addr+i, pbuf[i]);
-			//iprintf("prog %08lx with %04x\r\n", addr+i, pbuf[i]);
-			write_word_29w(addr+i, pbuf[i], pbuf[i+1]);
-		}
-	} else {
-		iprintf("[vkart] single\r\n");
-		for (uint32_t i = 0; i < len; i++) {
-			write_word_mx(addr+i, pbuf[i]);
-		}
-	}
-	iprintf("[vkart] prog %ld words done at %08lx\r\n", len, addr);
 }
 
