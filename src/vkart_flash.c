@@ -1,6 +1,7 @@
 
 #include "ch32v30x.h"
 #include "vkart_flash.h"
+#include "critical.h"
 
 #include <stdio.h>
 
@@ -157,21 +158,21 @@ bool VKART_Init(void) {
 	return true;
 }
 
-static void set_ce(uint8_t state) {
+inline static void set_ce(uint8_t state) {
 	if (state) {
 		GPIOE->BSHR = 0x00000002; // 00000000 00000000 00000000 00000010
 	} else {
 		GPIOE->BSHR = 0x00020000; // 00000000 00000010 00000000 00000000
 	}
 }
-static void set_rw(uint8_t state) {
+inline static void set_rw(uint8_t state) {
 	if (state) {
 		GPIOE->BSHR = 0x00000001;
 	} else {
 		GPIOE->BSHR = 0x00010000;
 	}
 }
-static void set_data_dir(uint8_t state) {
+inline static void set_data_dir(uint8_t state) {
 	if (state) {
 		GPIOD->CFGLR = 0x33333333; // output
 		GPIOD->CFGHR = 0x33333333;
@@ -194,24 +195,40 @@ static void set_address(uint32_t addr) {
 	GPIOB->OUTDR = SET_MASK(GPIOB->OUTDR, (addr >> 16) << 10, mask);
 	//out = (in & ~mask) | (val & mask);
 }
-static void set_data(uint16_t data) {
+inline static void set_data(uint16_t data) {
 	GPIO_Write(GPIOD, data);
 }
-static uint16_t get_data(void) {
+inline static uint16_t get_data(void) {
 	return GPIO_ReadInputData(GPIOD);
 }
+static uint16_t read_word(uint32_t addr) {
+	uint16_t ret;
+	CRITICAL_SECTION({
+		set_ce(1);
+		set_rw(1);
+		set_address(addr);
+		WAIT_SOME();
+		set_ce(0);
+		WAIT_SOME();
+		ret = get_data();
+	});
+	//iprintf("[vkart] read %04x\r\n", ret);
+	return ret;
+}
 static void write_word(uint32_t addr, uint16_t word) {
-	set_ce(1);
-	set_rw(0);
-	WAIT_SOME();
-	set_data_dir(DATA_WRITE);
-	set_address(addr);
-	WAIT_SOME();
-	set_ce(0);
-	WAIT_SOME();
-	set_data(word);
-	WAIT_SOME();
-	set_ce(1);
+	CRITICAL_SECTION({
+		set_ce(1);
+		set_rw(0);
+		WAIT_SOME();
+		set_data_dir(DATA_WRITE);
+		set_address(addr);
+		WAIT_SOME();
+		set_ce(0);
+		WAIT_SOME();
+		set_data(word);
+		WAIT_SOME();
+		set_ce(1);
+	});
 }
 static void write_word_mx2(uint32_t addr, uint16_t d1) {
 	do_reset();
@@ -302,18 +319,6 @@ static void erase_block(uint32_t addr) {
     iprintf("[vkart] chip erased in %lu cycles", check_status());
 } */
 
-static uint16_t read_word(uint32_t addr) {
-	uint16_t ret;
-	set_ce(1);
-	set_rw(1);
-	set_address(addr);
-	WAIT_SOME();
-	set_ce(0);
-	WAIT_SOME();
-	ret = get_data();
-	//iprintf("[vkart] read %04x\r\n", ret);
-	return ret;
-}
 static uint16_t get_device_id() {
 	//iprintf("[vkart] -- get_device_id --\r\n");
 	write_word(0x555, 0xAA);

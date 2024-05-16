@@ -3,6 +3,7 @@
 #include <stdbool.h>
 
 #include "ch32v30x.h"
+#include "critical.h"
 
 #include "led_blinker.h"
 
@@ -62,10 +63,10 @@ void led_blinker_init(void) {
 	led_blinker_set(led_waiting);
 
 	// set up interrupts
-	__disable_irq();
-	NVIC_EnableIRQ(TIM6_IRQn);
-	TIMER->DMAINTENR = TIM_UIE;
-	__enable_irq();
+	CRITICAL_SECTION({
+		NVIC_EnableIRQ(TIM6_IRQn);
+		TIMER->DMAINTENR = TIM_UIE;
+	});
 
 	// start the timer (with autoreload)
 	TIMER->CTLR1 = TIM_ARPE | TIM_CEN;

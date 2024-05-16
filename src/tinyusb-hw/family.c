@@ -27,6 +27,7 @@
 #include "ch32v30x.h"
 #include "family.h"
 #include "tusb.h"
+#include "critical.h"
 
 //--------------------------------------------------------------------+
 // Forward USB interrupt events to TinyUSB IRQ Handler
@@ -42,18 +43,14 @@ __attribute__((used)) void USBHS_IRQHandler_impl(void) {
 }
 
 void tusb_family_init(void) {
-	/* Disable interrupts during init */
-	__disable_irq();
-
-	RCC_USBCLK48MConfig(RCC_USBCLK48MCLKSource_USBPHY);
-	RCC_USBHSPLLCLKConfig(RCC_HSBHSPLLCLKSource_HSE);
-	RCC_USBHSConfig(RCC_USBPLL_Div2);
-	RCC_USBHSPLLCKREFCLKConfig(RCC_USBHSPLLCKREFCLK_4M);
-	RCC_USBHSPHYPLLALIVEcmd(ENABLE);
-	RCC_AHBPeriphClockCmd(RCC_AHBPeriph_USBHS, ENABLE);
-
-	/* Enable interrupts globally */
-	__enable_irq();
+	CRITICAL_SECTION({
+		RCC_USBCLK48MConfig(RCC_USBCLK48MCLKSource_USBPHY);
+		RCC_USBHSPLLCLKConfig(RCC_HSBHSPLLCLKSource_HSE);
+		RCC_USBHSConfig(RCC_USBPLL_Div2);
+		RCC_USBHSPLLCKREFCLKConfig(RCC_USBHSPLLCKREFCLK_4M);
+		RCC_USBHSPHYPLLALIVEcmd(ENABLE);
+		RCC_AHBPeriphClockCmd(RCC_AHBPeriph_USBHS, ENABLE);
+	});
 
 	Delay_Ms(2);
 }
