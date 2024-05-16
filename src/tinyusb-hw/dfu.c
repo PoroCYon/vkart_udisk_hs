@@ -184,7 +184,14 @@ void tud_dfu_manifest_cb(uint8_t alt) {
 	}
 
 	if (state.curblkacc) { // oops, still some data to flush
-		iprintf("[DFU] flush (late recovery)\r\n");
+		iprintf("[DFU] flush (late recovery) %p\r\n", vkart_data_buffer);
+		for (int i = 0; i < 256; i += 16) {
+			iprintf("%08x:", i);
+			for (int j = 0; j < 16; j += 2) {
+				iprintf(" %04x", vkart_data_buffer[(j+i)>>1]);
+			}
+			iprintf("%s","\r\n");
+		}
 		vkart_write_block(vkart_data_buffer, state.offset >> 1, state.curblkacc >> 1);
 		state.offset += state.curblkacc;
 		state.curblkacc = 0;
