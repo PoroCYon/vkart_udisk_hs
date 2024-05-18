@@ -12,6 +12,8 @@
 *******************************************************************************/
 #include "ch32v30x.h" 
 
+#define AAA __attribute__((__no_sanitize_address__))
+
 /* 
 * Uncomment the line corresponding to the desired System clock (SYSCLK) frequency (after 
 * reset the HSI is used as SYSCLK source).
@@ -68,34 +70,34 @@ __I uint8_t AHBPrescTable[16] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 6, 7, 8, 9}
 
 
 /* system_private_function_proto_types */
-static void SetSysClock(void);
+AAA static void SetSysClock(void);
 
 #ifdef SYSCLK_FREQ_HSE
-static void SetSysClockToHSE( void );
+AAA static void SetSysClockToHSE( void );
 #elif defined SYSCLK_FREQ_48MHz_HSE
-static void SetSysClockTo48_HSE( void );
+AAA static void SetSysClockTo48_HSE( void );
 #elif defined SYSCLK_FREQ_56MHz_HSE
-static void SetSysClockTo56_HSE( void );
+AAA static void SetSysClockTo56_HSE( void );
 #elif defined SYSCLK_FREQ_72MHz_HSE
-static void SetSysClockTo72_HSE( void );
+AAA static void SetSysClockTo72_HSE( void );
 #elif defined SYSCLK_FREQ_96MHz_HSE
-static void SetSysClockTo96_HSE( void );
+AAA static void SetSysClockTo96_HSE( void );
 #elif defined SYSCLK_FREQ_120MHz_HSE
-static void SetSysClockTo120_HSE( void );
+AAA static void SetSysClockTo120_HSE( void );
 #elif defined SYSCLK_FREQ_144MHz_HSE
-static void SetSysClockTo144_HSE( void );
+AAA static void SetSysClockTo144_HSE( void );
 #elif defined SYSCLK_FREQ_48MHz_HSI
-static void SetSysClockTo48_HSI( void );
+AAA static void SetSysClockTo48_HSI( void );
 #elif defined SYSCLK_FREQ_56MHz_HSI
-static void SetSysClockTo56_HSI( void );
+AAA static void SetSysClockTo56_HSI( void );
 #elif defined SYSCLK_FREQ_72MHz_HSI
-static void SetSysClockTo72_HSI( void );
+AAA static void SetSysClockTo72_HSI( void );
 #elif defined SYSCLK_FREQ_96MHz_HSI
-static void SetSysClockTo96_HSI( void );
+AAA static void SetSysClockTo96_HSI( void );
 #elif defined SYSCLK_FREQ_120MHz_HSI
-static void SetSysClockTo120_HSI( void );
+AAA static void SetSysClockTo120_HSI( void );
 #elif defined SYSCLK_FREQ_144MHz_HSI
-static void SetSysClockTo144_HSI( void );
+AAA static void SetSysClockTo144_HSI( void );
 
 #endif
 
@@ -108,7 +110,7 @@ static void SetSysClockTo144_HSI( void );
  *
  * @return  none
  */
-void SystemInit (void)
+AAA void SystemInit (void)
 {
   RCC->CTLR |= (uint32_t)0x00000001;
 
@@ -139,7 +141,7 @@ void SystemInit (void)
  *
  * @return  none
  */
-void SystemCoreClockUpdate (void)
+AAA void SystemCoreClockUpdate (void)
 {
   uint32_t tmp = 0, pllmull = 0, pllsource = 0, Pll_6_5 = 0;
 	
@@ -210,7 +212,7 @@ void SystemCoreClockUpdate (void)
  *
  * @return  none
  */
-static void SetSysClock(void)
+AAA static void SetSysClock(void)
 {
 #ifdef SYSCLK_FREQ_HSE
     SetSysClockToHSE();
@@ -256,7 +258,7 @@ static void SetSysClock(void)
  *
  * @return  none
  */
-static void SetSysClockToHSE(void)
+AAA static void SetSysClockToHSE(void)
 {
   __IO uint32_t StartUpCounter = 0, HSEStatus = 0;
    
@@ -313,7 +315,7 @@ static void SetSysClockToHSE(void)
  *
  * @return  none
  */
-static void SetSysClockTo48_HSE(void)
+AAA static void SetSysClockTo48_HSE(void)
 {
   __IO uint32_t StartUpCounter = 0, HSEStatus = 0;
      
@@ -385,7 +387,7 @@ static void SetSysClockTo48_HSE(void)
  *
  * @return  none
  */
-static void SetSysClockTo56_HSE(void)
+AAA static void SetSysClockTo56_HSE(void)
 {
   __IO uint32_t StartUpCounter = 0, HSEStatus = 0;
      
@@ -458,7 +460,7 @@ static void SetSysClockTo56_HSE(void)
  *
  * @return  none
  */
-static void SetSysClockTo72_HSE(void)
+AAA static void SetSysClockTo72_HSE(void)
 {
   __IO uint32_t StartUpCounter = 0, HSEStatus = 0;
      
@@ -532,7 +534,7 @@ static void SetSysClockTo72_HSE(void)
  *
  * @return  none
  */
-static void SetSysClockTo96_HSE(void)
+AAA static void SetSysClockTo96_HSE(void)
 {
   __IO uint32_t StartUpCounter = 0, HSEStatus = 0;
 
@@ -606,7 +608,7 @@ static void SetSysClockTo96_HSE(void)
  *
  * @return  none
  */
-static void SetSysClockTo120_HSE(void)
+AAA static void SetSysClockTo120_HSE(void)
 {
   __IO uint32_t StartUpCounter = 0, HSEStatus = 0;
 
@@ -680,7 +682,7 @@ static void SetSysClockTo120_HSE(void)
  *
  * @return  none
  */
-static void SetSysClockTo144_HSE(void)
+AAA static void SetSysClockTo144_HSE(void)
 {
   __IO uint32_t StartUpCounter = 0, HSEStatus = 0;
 
@@ -753,7 +755,7 @@ static void SetSysClockTo144_HSE(void)
  *
  * @return  none
  */
-static void SetSysClockTo48_HSI(void)
+AAA static void SetSysClockTo48_HSI(void)
 {
     EXTEN->EXTEN_CTR |= EXTEN_PLL_HSI_PRE;
 
@@ -797,7 +799,7 @@ static void SetSysClockTo48_HSI(void)
  *
  * @return  none
  */
-static void SetSysClockTo56_HSI(void)
+AAA static void SetSysClockTo56_HSI(void)
 {
     EXTEN->EXTEN_CTR |= EXTEN_PLL_HSI_PRE;
 
@@ -841,7 +843,7 @@ static void SetSysClockTo56_HSI(void)
  *
  * @return  none
  */
-static void SetSysClockTo72_HSI(void)
+AAA static void SetSysClockTo72_HSI(void)
 {
     EXTEN->EXTEN_CTR |= EXTEN_PLL_HSI_PRE;
 
@@ -886,7 +888,7 @@ static void SetSysClockTo72_HSI(void)
  *
  * @return  none
  */
-static void SetSysClockTo96_HSI(void)
+AAA static void SetSysClockTo96_HSI(void)
 {
     EXTEN->EXTEN_CTR |= EXTEN_PLL_HSI_PRE;
 
@@ -931,7 +933,7 @@ static void SetSysClockTo96_HSI(void)
  *
  * @return  none
  */
-static void SetSysClockTo120_HSI(void)
+AAA static void SetSysClockTo120_HSI(void)
 {
     EXTEN->EXTEN_CTR |= EXTEN_PLL_HSI_PRE;
 
@@ -976,7 +978,7 @@ static void SetSysClockTo120_HSI(void)
  *
  * @return  none
  */
-static void SetSysClockTo144_HSI(void)
+AAA static void SetSysClockTo144_HSI(void)
 {
     EXTEN->EXTEN_CTR |= EXTEN_PLL_HSI_PRE;
 

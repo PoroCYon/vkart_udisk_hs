@@ -3,7 +3,7 @@
 #include <stdbool.h>
 
 #include "ch32v30x.h"
-#include "critical.h"
+#include "util.h"
 
 #include "led_blinker.h"
 
@@ -36,7 +36,7 @@ void led_blinker_set(enum led_interval itv) {
 		GPIOE->BSHR = (1<<2);
 		state = true;
 	} else {
-		TIMER->ATRLR = /*0xffff -*/ intv*16;
+		TIMER->ATRLR = /*0xffff -*/ (intv*16) >> 1;
 		TIMER->CTLR1 = TIM_ARPE | TIM_CEN;
 	}
 }

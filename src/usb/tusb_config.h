@@ -23,7 +23,6 @@
 
 // RHPort max operational speed can defined by board.mk
 #ifndef BOARD_TUD_MAX_SPEED
-#error "no!!!"
 #define BOARD_TUD_MAX_SPEED   OPT_MODE_DEFAULT_SPEED
 #endif
 
@@ -77,7 +76,7 @@
 #define CFG_TUD_DFU               1
 
 // DFU buffer size, it has to be set to the buffer size used in TUD_DFU_DESCRIPTOR
-#define CFG_TUD_DFU_XFER_BUFSIZE  (/*TUD_OPT_HIGH_SPEED ?*/ 512 /*: 64*/)
+#define CFG_TUD_DFU_XFER_BUFSIZE  (/*TUD_OPT_HIGH_SPEED ? 512 : 64*/4096)
 
 #ifdef __cplusplus
  }

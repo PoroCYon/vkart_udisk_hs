@@ -3,3 +3,5 @@ _nop/
 *.lst
 *.map
 *.bin
+config.mk
+*.hd

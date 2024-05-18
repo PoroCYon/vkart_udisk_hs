@@ -388,6 +388,8 @@ handle_reset:
     bnez a0, 1b
 
     jal  SystemInit
+	la t0, 0x42
+	csrw mcause, t0
 	la t0, main
 	csrw mepc, t0
 	mret

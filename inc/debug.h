@@ -23,13 +23,13 @@
 //#define DEBUG   DEBUG_UART2
 //#define DEBUG   DEBUG_UART3
 
+#define DEBUG_UART_BAUDRATE (115200)
+
 
 void Delay_Init(void);
 void Delay_Us (uint32_t n);
 void Delay_Ms (uint32_t n);
-void USART_Printf_Init(uint32_t baudrate);
+void uart_init_dbg(void);
 
-#endif 
-
-
+#endif
 

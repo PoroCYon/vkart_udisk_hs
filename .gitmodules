@@ -1,3 +1,4 @@
 [submodule "tinyusb"]
 	path = tinyusb
-	url = https://github.com/hathach/tinyusb
+	url = https://github.com/Krasutski/tinyusb
+	branch = bugfix/ch32-hs-dcd

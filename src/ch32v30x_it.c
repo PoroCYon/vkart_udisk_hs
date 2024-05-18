@@ -11,8 +11,7 @@
 *******************************************************************************/
 #include "ch32v30x_it.h"
 
-void NMI_Handler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
-void HardFault_Handler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
+void NMI_Handler(void) __attribute__((/*__interrupt__("WCH-Interrupt-fast")*/));
 
 /*********************************************************************
  * @fn      NMI_Handler
@@ -21,22 +20,8 @@ void HardFault_Handler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
  *
  * @return  none
  */
-void NMI_Handler(void)
-{
+__attribute__((__naked__))
+void NMI_Handler(void) {
+	asm volatile("mret");
 }
-
-/*********************************************************************
- * @fn      HardFault_Handler
- *
- * @brief   This function handles Hard Fault exception.
- *
- * @return  none
- */
-void HardFault_Handler(void)
-{
-  while (1)
-  {
-  }
-}
-
 

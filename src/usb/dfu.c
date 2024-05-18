@@ -7,7 +7,7 @@
 
 #include "tusb.h"
 #include "ch32v30x.h"
-
+#include "util.h"
 #include "led_blinker.h"
 #include "vkart_flash.h"
 
@@ -25,6 +25,7 @@ struct state {
 #define BLKSZ_B (VKART_BUFFER_WORDSZ << 1)
 #define DESTPTR ((uint8_t*)vkart_data_buffer)
 
+#define CRC32_INITIAL (~(uint32_t)0)
 
 // DFU -- internal fuctions
 
@@ -32,7 +33,7 @@ static bool init_base(void) {
 	state.offset = 0;
 	state.maxlen = VKART_MEMORY_WORDSZ<<1;
 	state.curblkacc = 0;
-	state.crcacc = ~(uint32_t)0;
+	state.crcacc = CRC32_INITIAL;
 	state.curact = act_none;
 
 	return true;
@@ -85,6 +86,53 @@ static void deinit_download(void) {
 }
 
 
+static void push_back(const char* reason, const uint8_t* data, size_t len) {
+	// NOTE: this function assumes that the data being pushed back won't
+	//       overflow the buffer!
+	iprintf("[DFU] buffer %s to %06lx len %u\r\n", reason, state.curblkacc, len);
+	//hexdump(data, len > 128 ? 128 : 0);
+	memcpy(&DESTPTR[state.curblkacc], data, len);
+	state.crcacc = crc32(state.crcacc, &DESTPTR[state.curblkacc], len);
+	state.curblkacc += len;
+}
+static void data_flush(const char* reason, size_t len_bytes) {
+	iprintf("[DFU] flush (%s) %p offset %06lx len %u\r\n", reason,
+			vkart_data_buffer, state.offset, len_bytes);
+	//hexdump(vkart_data_buffer, 128);
+	vkart_write_block(vkart_data_buffer, state.offset >> 1, len_bytes >> 1);
+	state.offset += len_bytes;
+	state.curblkacc = 0;
+}
+static void add_data_block(const uint8_t* data, size_t len) {
+	// NOTE: this function assumes `len' is even!
+
+	if (!data) {
+		if (state.curblkacc) { // oops, still some data to flush
+			data_flush("late recovery", state.curblkacc);
+		}
+
+		return;
+	}
+
+	if (state.curblkacc + len < BLKSZ_B) {
+		// can fit, so just put it into the buffer
+		push_back("add", data, len);
+	} else if (len == 0) {
+		// done receiving data, time to flush one final time
+		data_flush("EOF", state.curblkacc);
+	} else {
+		// oop, crosses a page boundary, time to cut it up
+		uint32_t can_add = BLKSZ_B - state.curblkacc;
+		push_back("fill", data, can_add);
+		data_flush("block batch", BLKSZ_B); // sets curblkacc back to 0
+
+		uint32_t left_todo = len - can_add;
+		if (left_todo) {
+			push_back("restart", data + can_add, left_todo);
+		}
+	}
+}
+
 
 //--------------------------------------------------------------------+
 // DFU callbacks
@@ -95,10 +143,14 @@ static void deinit_download(void) {
 // Application return timeout in milliseconds (bwPollTimeout) for the next download/manifest operation.
 // During this period, USB host won't try to communicate with us.
 uint32_t tud_dfu_get_timeout_cb(uint8_t alt, uint8_t state) {
-	const uint32_t timeout_busy = 90 /* erase time 90ms */ + 350/*328*/; /* double write: 20us * 16k pages */
-	const uint32_t timeout_manifest = 0; // TODO: fill this in when we actually calculate a CRC or anything
+	const uint32_t timeout_busy
+		= 90 /* erase time 90ms */
+		+ 350/*328*/ /* double write: 20us * 16k pages */
+		+ 10 /* CRC calc? */
+		;
+	const uint32_t timeout_manifest = 150; // TODO: fill this in when we actually calculate a CRC or anything
 
-	iprintf("DFU get timeout alt=%u state=%u\r\n", alt, state);
+	//iprintf(" [DFU] get timeout alt=%u state=%u\r\n", alt, state);
 	if (state == DFU_DNBUSY) {
 		return timeout_busy;
 	} else if (state == DFU_MANIFEST) {
@@ -114,9 +166,7 @@ uint32_t tud_dfu_get_timeout_cb(uint8_t alt, uint8_t state) {
 void tud_dfu_download_cb(uint8_t alt, uint16_t block_num, uint8_t const* data, uint16_t len) {
 	(void)alt;
 
-	iprintf("[DFU] download alt=%u block=%u length=%u\r\n", alt, block_num, len);
-	/*tud_dfu_finish_flashing(DFU_STATUS_OK);
-	return;*/
+	//iprintf("[DFU] download alt=%u block=%u length=%u\r\n", alt, block_num, len);
 
 	if (len & 1) { // no unaligned writes, sorry
 		tud_dfu_finish_flashing(DFU_STATUS_ERR_ADDRESS);
@@ -141,30 +191,7 @@ void tud_dfu_download_cb(uint8_t alt, uint16_t block_num, uint8_t const* data, u
 		len = (uint16_t)len;
 	}
 
-	if (state.curblkacc + len < BLKSZ_B) {
-		// can fit, so just put it into the buffer
-		memcpy(&DESTPTR[state.curblkacc], data, len);
-		state.curblkacc += len;
-	} else if (len == 0) {
-		// done receiving data, time to flush one final time
-		iprintf("[DFU] flush (EOF)\r\n");
-		//vkart_write_block(vkart_data_buffer, state.offset >> 1, state.curblkacc >> 1);
-	} else {
-		// oop, crosses a page boundary, time to cut it up
-		uint32_t can_add = BLKSZ_B - state.curblkacc;
-		memcpy(&DESTPTR[state.curblkacc], data, can_add);
-
-		// time to flush this block
-		iprintf("[DFU] flush (block batch)\r\n");
-		//vkart_write_block(vkart_data_buffer, state.offset >> 1, BLKSZ_B >> 1);
-
-		state.offset += BLKSZ_B;
-
-		state.curblkacc = len - can_add;
-		if (state.curblkacc) {
-			memcpy(DESTPTR, data + can_add, state.curblkacc);
-		}
-	}
+	add_data_block(data, len);
 
 	// flashing op for download complete without error
 	tud_dfu_finish_flashing(DFU_STATUS_OK);
@@ -183,21 +210,22 @@ void tud_dfu_manifest_cb(uint8_t alt) {
 		return;
 	}
 
-	if (state.curblkacc) { // oops, still some data to flush
-		iprintf("[DFU] flush (late recovery) %p\r\n", vkart_data_buffer);
-		for (int i = 0; i < 256; i += 16) {
-			iprintf("%08x:", i);
-			for (int j = 0; j < 16; j += 2) {
-				iprintf(" %04x", vkart_data_buffer[(j+i)>>1]);
-			}
-			iprintf("%s","\r\n");
-		}
-		vkart_write_block(vkart_data_buffer, state.offset >> 1, state.curblkacc >> 1);
-		state.offset += state.curblkacc;
-		state.curblkacc = 0;
+	add_data_block(NULL, 0);
+
+	uint32_t check_acc = CRC32_INITIAL;
+	uint32_t total_len_b = state.offset;
+
+	for (size_t block = 0, todo = BLKSZ_B;
+			block < total_len_b;
+			block += todo) {
+		if (block + todo > total_len_b) todo = total_len_b - block;
+
+		vkart_read_data(block >> 1, vkart_data_buffer, todo >> 1);
+		check_acc = crc32(check_acc, vkart_data_buffer, todo);
 	}
 
-	bool verify_good = true; // TODO: implement this lmao
+	iprintf("[DFU] CRC manifest check: %08lx (write) vs %08lx (check)\r\n", state.crcacc, check_acc);
+	bool verify_good = check_acc == state.crcacc;
 
 	deinit_download();
 
