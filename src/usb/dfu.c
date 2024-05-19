@@ -18,12 +18,9 @@ struct state {
 	uint32_t offset;
 	uint32_t maxlen;
 	uint32_t crcacc;
-	uint32_t curblkacc;
 	enum action { act_none = 0, act_upload = 1, act_download = 2 } curact;
+	bool stop;
 } state;
-
-#define BLKSZ_B (VKART_BUFFER_WORDSZ << 1)
-#define DESTPTR ((uint8_t*)vkart_data_buffer)
 
 #define CRC32_INITIAL (~(uint32_t)0)
 
@@ -32,9 +29,9 @@ struct state {
 static bool init_base(void) {
 	state.offset = 0;
 	state.maxlen = VKART_MEMORY_WORDSZ<<1;
-	state.curblkacc = 0;
 	state.crcacc = CRC32_INITIAL;
 	state.curact = act_none;
+	state.stop = false;
 
 	return true;
 }
@@ -70,6 +67,13 @@ static bool init_download(void) {
 	if (!init_base()) goto err;
 
 	iprintf("[DFU] init download\r\n");
+
+	if (!vkart_wrimage_start()) {
+		iprintf("[DFU] can't start DL!\r\n");
+
+		goto err;
+	}
+
 	state.curact = act_download;
 	led_blinker_set(led_writing);
 	return true;
@@ -81,56 +85,9 @@ err:
 }
 static void deinit_download(void) {
 	iprintf("[DFU] deinit download\r\n");
+	vkart_wrimage_finish();
 	led_blinker_set(led_waiting);
 	state.curact = act_none;
-}
-
-
-static void push_back(const char* reason, const uint8_t* data, size_t len) {
-	// NOTE: this function assumes that the data being pushed back won't
-	//       overflow the buffer!
-	iprintf("[DFU] buffer %s to %06lx len %u\r\n", reason, state.curblkacc, len);
-	//hexdump(data, len > 128 ? 128 : 0);
-	memcpy(&DESTPTR[state.curblkacc], data, len);
-	state.crcacc = crc32(state.crcacc, &DESTPTR[state.curblkacc], len);
-	state.curblkacc += len;
-}
-static void data_flush(const char* reason, size_t len_bytes) {
-	iprintf("[DFU] flush (%s) %p offset %06lx len %u\r\n", reason,
-			vkart_data_buffer, state.offset, len_bytes);
-	//hexdump(vkart_data_buffer, 128);
-	vkart_write_block(vkart_data_buffer, state.offset >> 1, len_bytes >> 1);
-	state.offset += len_bytes;
-	state.curblkacc = 0;
-}
-static void add_data_block(const uint8_t* data, size_t len) {
-	// NOTE: this function assumes `len' is even!
-
-	if (!data) {
-		if (state.curblkacc) { // oops, still some data to flush
-			data_flush("late recovery", state.curblkacc);
-		}
-
-		return;
-	}
-
-	if (state.curblkacc + len < BLKSZ_B) {
-		// can fit, so just put it into the buffer
-		push_back("add", data, len);
-	} else if (len == 0) {
-		// done receiving data, time to flush one final time
-		data_flush("EOF", state.curblkacc);
-	} else {
-		// oop, crosses a page boundary, time to cut it up
-		uint32_t can_add = BLKSZ_B - state.curblkacc;
-		push_back("fill", data, can_add);
-		data_flush("block batch", BLKSZ_B); // sets curblkacc back to 0
-
-		uint32_t left_todo = len - can_add;
-		if (left_todo) {
-			push_back("restart", data + can_add, left_todo);
-		}
-	}
 }
 
 
@@ -148,7 +105,7 @@ uint32_t tud_dfu_get_timeout_cb(uint8_t alt, uint8_t state) {
 		+ 350/*328*/ /* double write: 20us * 16k pages */
 		+ 10 /* CRC calc? */
 		;
-	const uint32_t timeout_manifest = 150; // TODO: fill this in when we actually calculate a CRC or anything
+	const uint32_t timeout_manifest = 1000; // TODO: fill this in when we actually calculate a CRC or anything
 
 	//iprintf(" [DFU] get timeout alt=%u state=%u\r\n", alt, state);
 	if (state == DFU_DNBUSY) {
@@ -181,9 +138,9 @@ void tud_dfu_download_cb(uint8_t alt, uint16_t block_num, uint8_t const* data, u
 		}
 	}
 
-	if (state.offset + state.curblkacc + len >= state.maxlen) {
+	if (state.offset + len >= state.maxlen) {
 		// too much, truncate
-		int64_t llen = state.maxlen - (state.offset + state.curblkacc);
+		int64_t llen = state.maxlen - state.offset;
 		if (llen < 0 || len > UINT16_MAX) {
 			tud_dfu_finish_flashing(DFU_STATUS_ERR_ADDRESS);
 			return;
@@ -191,7 +148,15 @@ void tud_dfu_download_cb(uint8_t alt, uint16_t block_num, uint8_t const* data, u
 		len = (uint16_t)len;
 	}
 
-	add_data_block(data, len);
+	if (!state.stop) {
+		state.crcacc = crc32(state.crcacc, data, len);
+		iprintf("[DFU] CRC at %08lx is: %08lx\r\n", state.offset, state.crcacc);
+		state.stop = vkart_wrimage_next((const uint16_t*)data, len >> 1);
+		state.offset += len;
+	}
+	if (state.stop) {
+		iprintf("[DFU] STOP!\r\n");
+	}
 
 	// flashing op for download complete without error
 	tud_dfu_finish_flashing(DFU_STATUS_OK);
@@ -210,18 +175,20 @@ void tud_dfu_manifest_cb(uint8_t alt) {
 		return;
 	}
 
-	add_data_block(NULL, 0);
+	vkart_wrimage_finish();
+	//add_data_block(NULL, 0);
 
 	uint32_t check_acc = CRC32_INITIAL;
 	uint32_t total_len_b = state.offset;
 
-	for (size_t block = 0, todo = BLKSZ_B;
+	for (uint32_t block = 0, todo = 4096/*VKART_BUFFER_WORDSZ*sizeof(uint16_t)*/;
 			block < total_len_b;
 			block += todo) {
 		if (block + todo > total_len_b) todo = total_len_b - block;
 
 		vkart_read_data(block >> 1, vkart_data_buffer, todo >> 1);
 		check_acc = crc32(check_acc, vkart_data_buffer, todo);
+		iprintf("[DFU] check CRC at %08lx is: %08lx\r\n", block, check_acc);
 	}
 
 	iprintf("[DFU] CRC manifest check: %08lx (write) vs %08lx (check)\r\n", state.crcacc, check_acc);

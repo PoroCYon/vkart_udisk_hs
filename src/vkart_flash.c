@@ -5,8 +5,7 @@
 
 #include <stdbool.h>
 #include <stdio.h>
-
-uint16_t vkart_data_buffer[VKART_BUFFER_WORDSZ];
+#include <string.h>
 
 
 static void set_ce(uint8_t state);
@@ -19,7 +18,7 @@ static void write_word(uint32_t address, uint16_t word);
 static void write_word_mx(uint32_t addr, uint16_t d1);
 static void write_word_29w(uint32_t addr, uint16_t d1, uint16_t d2);
 static void erase_block(uint32_t addr);
-static void erase_chip();
+//static void erase_chip();
 static uint16_t read_word(uint32_t address);
 static uint16_t get_device_id(void);
 static void do_reset();
@@ -67,40 +66,69 @@ static void do_reset();
 #define SET_MASK(A, B, mask) ( (A & ~mask) | (B & mask) )
 #define WAIT_SOME() asm volatile("nop;nop;nop;nop;nop;nop;nop;nop;nop":::"memory")
 
-void hexdump(const void* src_, size_t len);
-
-enum {
+enum layout_type_t {
 	REGULAR = 0,
 	BOTTOM,
 	TOP
-} layout_type;
-
-enum {
-	CLEAN = 1,
-	DIRTY,
-	UNKNOWN
 };
 
-typedef enum {
-	Success,
-	AddressInvalid,
-	EraseFailed,
-	ProgramFailed,
-	ProgramAbort,
-	ToggleFailed,
-	OperationTimeOut,
-	InProgress,
-	Cmd_Invalid,
-	SectorProtected,
-	SectorUnprotected
-} ret_msg;
+static struct {
+	uint16_t device_id;
+	uint8_t flash_layout; // layout_type_t
+	int8_t top_bottom;
+	bool support_double;
+} meta = {
+	.flash_layout = REGULAR,
+	.top_bottom = -1,
+	.support_double = false,
+};
 
-static uint8_t vkart_sectors[135];
-static uint8_t flash_layout = REGULAR;
-static int8_t top_bottom = -1;
-static int8_t support_double = 0;
-static uint16_t device_id;
+enum sector_action_type {
+	ERASE_REWRITE_FULL = 1, // do a full erase & write
+	WAS_ERASED = 2,         // was already erased, only write
+	SAME_CHECK_BUSY = 3,    // check if the data we're writing is already the same
+};
 
+uint16_t vkart_data_buffer[VKART_BUFFER_WORDSZ];
+#define wrimage_buf vkart_data_buffer
+static struct {
+	uint32_t blockaddr;
+	uint32_t off_in_block;
+	uint16_t blocklen;
+	uint8_t block;
+	uint8_t act_typ; // sector_action_type
+} wrimage = {
+	.block = 0xff,
+	.act_typ = 0
+};
+
+
+struct len_and_block {
+	uint16_t len;
+	uint16_t block;
+};
+
+static struct len_and_block info_of_address(uint32_t addr) {
+	uint16_t len, block;
+
+	len = 0x8000;
+	block = addr >> 15;
+	if (meta.flash_layout == BOTTOM) {
+		if (block == meta.top_bottom) {
+			block = addr >> 12;
+			len = 0x1000;
+		} else {
+			block += 7;
+		}
+	} else if (meta.flash_layout == TOP) {
+		if (block == meta.top_bottom) {
+			block += (addr >> 12) & 7;
+			len = 0x1000;
+		}
+	}
+
+	return (struct len_and_block){.len=len, .block=block};
+}
 
 bool vkart_init(void) {
 	//GPIO_InitTypeDef  GPIO_InitStructure = {0};
@@ -124,37 +152,36 @@ bool vkart_init(void) {
 	GPIOE->CFGLR |= 0x00000333;
 	GPIOE->CFGLR = 0x44444333;
 
-	// unknown status by default
-	for (size_t s = 0; s < sizeof(vkart_sectors)/sizeof(vkart_sectors[0]); ++s)
-		vkart_sectors[s]=UNKNOWN;
-
 	do_reset();
 	//Delay_Ms(10);
-	iprintf("[vkart] device id %04x\r\n", device_id = get_device_id());
-	if (device_id == 0x22cb || device_id == 0x22e9) { // Macronix
-		if (device_id == 0x22cb) {
-			flash_layout = BOTTOM;
-			top_bottom = 0;
-		}
-		if (device_id == 0x22e9) {
-			flash_layout = TOP;
-			top_bottom = 127;
-		}
-	}
-	if (device_id == 0x22ed || device_id == 0x22fd) { // ST-Numonix
-		if (device_id == 0x22fd) {
-			flash_layout = BOTTOM;
-			top_bottom = 0;
-		}
-		if (device_id == 0x22ed) {
-			flash_layout = TOP;
-			top_bottom = 127;
-		}
-		support_double = 1;
-	}
-	iprintf("[vkart] flash layout : %d.%d\r\n", flash_layout, top_bottom);
+	uint16_t devid = get_device_id();
+	iprintf("[vkart] device id %04x\r\n", devid);
+	if (devid == 0x0000) return false;
 
-	if (device_id == 0x0000) return false;
+	meta.device_id = devid;
+	if (devid == 0x22cb || devid == 0x22e9) { // Macronix
+		if (devid == 0x22cb) {
+			meta.flash_layout = BOTTOM;
+			meta.top_bottom = 0;
+		}
+		if (devid == 0x22e9) {
+			meta.flash_layout = TOP;
+			meta.top_bottom = 127;
+		}
+	}
+	if (devid == 0x22ed || devid == 0x22fd) { // ST-Numonix
+		if (devid == 0x22fd) {
+			meta.flash_layout = BOTTOM;
+			meta.top_bottom = 0;
+		}
+		if (devid == 0x22ed) {
+			meta.flash_layout = TOP;
+			meta.top_bottom = 127;
+		}
+		meta.support_double = 1;
+	}
+
+	iprintf("[vkart] flash layout : %d.%d\r\n", meta.flash_layout, meta.top_bottom);
 
 	do_reset();
 	Delay_Ms(10);
@@ -234,11 +261,11 @@ static void write_word(uint32_t addr, uint16_t word) {
 		set_ce(1);
 	});
 }
-static void write_word_mx2(uint32_t addr, uint16_t d1) {
+/*static void write_word_mx2(uint32_t addr, uint16_t d1) {
 	do_reset();
-}
+}*/
 
-static ret_msg data_toggle(void) {
+/*static ret_msg data_toggle(void) {
 	uint8_t tog1, tog2;
 
 	tog1 = read_word(0);
@@ -257,7 +284,7 @@ static ret_msg data_toggle(void) {
 	} else {
 		return ToggleFailed;
 	}
-}
+}*/
 
 
 static void write_word_mx(uint32_t addr, uint16_t d1) {
@@ -312,16 +339,6 @@ static void erase_block(uint32_t addr) {
 	Delay_Ms(900);
 	iprintf("[vkart] End erase block %08lx st=%02x\r\n", addr, q);
 }
-/* void erase_chip() {
-    write_word(0x555, 0xaa);
-    write_word(0x2aa, 0x55);
-    write_word(0x555, 0x80);
-    write_word(0x555, 0xaa);
-    write_word(0x2aa, 0x55);
-    write_word(0x555, 0x10);
-    Delay_Ms(80000); // typical 80s
-    iprintf("[vkart] chip erased in %lu cycles", check_status());
-} */
 
 static uint16_t get_device_id() {
 	//iprintf("[vkart] -- get_device_id --\r\n");
@@ -335,139 +352,157 @@ static void do_reset() {
 	write_word(0x0, 0x00f0);
 }
 
-void vkart_read_data(uint32_t addr, uint16_t *buff, uint32_t len) {
+void vkart_read_data(uint32_t addr, uint16_t* buff, uint32_t len) {
 	set_data_dir(DATA_READ);
-	for(int i = 0; i < len; ++i) {
-		*buff++ = read_word(addr++);
+	for (uint32_t i = 0; i < len; ++i) {
+		buff[i] = read_word(addr + i);
 	}
 }
-
 void vkart_erase_sector(uint32_t addr, uint8_t block) {
 	iprintf("[vkart] erase sector addr %08lx for %d\r\n", addr, block);
 	erase_block(addr);
-	vkart_sectors[block] = CLEAN;
 	do_reset();
 }
+void vkart_write_data(const uint16_t *pbuf, uint32_t addr, uint32_t len) {
+	if (len < 2) return;
 
-static void display_blocks() {
-	int s = 0;
-	char c = 0;
-	for(int i = 0 ; i < 8; i++) {
-		for(int j = 0; j < 17; j++) {
-			s = vkart_sectors[i*17 + j];
-			if (s == UNKNOWN) c = '?';
-			if (s == CLEAN) c = 'c';
-			if (s == DIRTY) c = 'X';
-			iprintf("%c ", c);
+	if (meta.support_double) {
+		//iprintf("[vkart] double write at %08lx for len %08lx\r\n", addr, len);
+		for (uint32_t i = 0; i < len; i += 2) {
+			//if ((pbuf[i] & pbuf[i+1]) == 0xffff) continue;
+			write_word_29w(addr + i, pbuf[i], pbuf[i+1]);
+			WAIT_SOME();
+			WAIT_SOME();
+			WAIT_SOME();
 		}
-		iprintf("\r\n");
+	} else {
+		//iprintf("[vkart] single write at %08lx for len %08lx\r\n", addr, len);
+		for (uint32_t i = 0; i < len; ++i) {
+			//if (pbuf[i] == 0xffff) continue;
+			write_word_mx(addr + i, pbuf[i]);
+			WAIT_SOME();
+			WAIT_SOME();
+			WAIT_SOME();
+		}
+	}
+	//iprintf("[vkart] prog %ld words done at %08lx\r\n", len, addr);
+}
+
+static void start_new_sector(void) {
+	wrimage.blockaddr += wrimage.blocklen;
+	struct len_and_block lab = info_of_address(wrimage.blockaddr);
+	wrimage.block = lab.block;
+	wrimage.blocklen = lab.len;
+	wrimage.off_in_block = 0;
+
+	//iprintf("[vkart] wrimage: new sector %08lx %d len %06x\r\n", wrimage.blockaddr, wrimage.block, wrimage.blocklen);
+
+	bool blank = true;
+	set_data_dir(DATA_READ);
+	wrimage.act_typ = WAS_ERASED;
+	for (uint32_t i = 0; i < wrimage.blocklen; ++i) {
+		if (read_word(wrimage.blockaddr + i) != 0xffff) {
+			blank = false;
+			break;
+		}
+	}
+
+	if (blank) {
+		wrimage.act_typ = WAS_ERASED;
+		iprintf("[vkart] wrimage: clean, only write\r\n");
+	} else if (wrimage.blocklen > VKART_BUFFER_WORDSZ) {
+		// can't buffer, so can't do a wear-levelling check -> no other choice
+		// but to erase the entire sector.
+		wrimage.act_typ = ERASE_REWRITE_FULL;
+		iprintf("[vkart] wrimage: full erase & rewrite\r\n");
+	} else {
+		wrimage.act_typ = SAME_CHECK_BUSY;
+		iprintf("[vkart] wrimage: same-data-check\r\n");
+	}
+
+	if (wrimage.act_typ == ERASE_REWRITE_FULL) {
+		vkart_erase_sector(wrimage.blockaddr, wrimage.block);
 	}
 }
 
-/*void vkart_write_block2(uint16_t *pbuf, uint32_t addr, uint32_t len) {
-	iprintf("[vkart] vkart_write_block at %08lx %ld words\r\n", addr, len);
-	for(int i = 0; i < len; i++) {
-		//if (i % 16 == 0) iprintf("%08lx: ", (addr+i));
-		//iprintf("%04x ",  pbuf[i]);
-		//if (i % 16 == 15) iprintf("\r\n");
-		//iprintf("prog %08lx with %04x\r\n", addr+i, pbuf[i]);
-		write_word_mx(addr+i, pbuf[i]);
+bool vkart_wrimage_start(void) {
+	if (wrimage.block != 0xff) return false;
+
+	iprintf("[vkart] wrimage: start\r\n");
+
+	wrimage.blockaddr = 0;
+	wrimage.blocklen = 0;
+	start_new_sector();
+
+	return true;
+}
+bool vkart_wrimage_next(const uint16_t* pbuf, uint32_t len) {
+	uint32_t todo = len;
+	bool end = false;
+	if (wrimage.off_in_block + todo > wrimage.blocklen) {
+		todo = wrimage.blocklen - wrimage.off_in_block;
 	}
 
-}*/
-void vkart_write_block(uint16_t *pbuf, uint32_t addr, uint32_t len) {
-	uint8_t dirty = 0;
-	uint8_t block = addr >> 15;
-	uint32_t block_len = 0x8000;
-	//if (addr > 0x3000) return;
-	iprintf("[vkart] vkart_write_block at %08lx %ld words\r\n", addr, len);
+	if (wrimage.blockaddr + wrimage.off_in_block + todo >= VKART_MEMORY_WORDSZ) {
+		todo = VKART_MEMORY_WORDSZ - (wrimage.blockaddr + wrimage.off_in_block);
+		end = true; // don't tailcall!
+	}
 
-	if (len < 2) return;
+	//iprintf("[vkart] wrimage: next %06lx, will do %06lx\r\n", len, todo);
+	if (end) {
+		iprintf("[vkart] wrimage: REACHES END\r\n");
+	}
 
-	for (uint32_t len_do; len != 0; len -= len_do, addr += len_do, pbuf += len_do) {
-		//iprintf("[vkart] ITER!\r\n");
+	if (wrimage.act_typ == ERASE_REWRITE_FULL || wrimage.act_typ == WAS_ERASED) {
+		vkart_write_data(pbuf, wrimage.blockaddr + wrimage.off_in_block, todo);
+	} else if (wrimage.act_typ == SAME_CHECK_BUSY) {
+		bool failed = false;
+
 		set_data_dir(DATA_READ);
-		if (flash_layout == BOTTOM) {
-			if (block == top_bottom) {
-				block = addr >> 12;
-				block_len = 0x1000;
-			} else {
-				block += 7;
-			}
-		}
-		if (flash_layout == TOP) {
-			if (block == top_bottom) {
-				block += (addr >> 12) & 7;
-				block_len = 0x1000;
-			}
-		}
 
-		len_do = len;
-		if (len_do > block_len) len_do = block_len;
+		memcpy(&wrimage_buf[wrimage.off_in_block], pbuf, todo * sizeof(uint16_t));
 
-		//iprintf("[vkart] do same comp at %08lx for %08lx, buf %p\r\n", addr, len_do, pbuf);
-		bool same = true;
-		for (uint32_t i = 0; i < len_do; i++) {
-			uint16_t memv = read_word(addr+i);
-			same = memv == pbuf[i];
-			if (!same) {
-				iprintf("[vkart] mismatch! offset %08lx: %04x vs %04x\r\n", i, memv, pbuf[i]);
+		iprintf("[vkart] wrimage: same check from %08lx len %06lx...\r\n",
+				wrimage.blockaddr + wrimage.off_in_block, todo);
+		for (uint32_t i = 0; i < todo; ++i) {
+			uint16_t memv = read_word(wrimage.blockaddr + wrimage.off_in_block + i);
+			if (memv != pbuf[i]) {
+				failed = true; // oh no!
+				iprintf("[vkart] wrimage: same check failed! at %08lx: have %04x, write %04x\r\n",
+						wrimage.blockaddr + wrimage.off_in_block + i, memv, pbuf[i]);
 				break;
 			}
 		}
-		if (same) {
-			iprintf("[vkart] same buffer at %08lx\r\n", addr);
-			continue;
-		}
 
-		iprintf("[vkart] block %u sector type %u\r\n", block, vkart_sectors[block]);
-		if (vkart_sectors[block] != CLEAN) {
-			// start index of loop: allow writing only parts of a block (so you
-			// don't have to buffer the entire thing), while still only doing block
-			// erasures at appropriate times
-			iprintf("[vkart] do clean check at %08lx for %08lx\r\n", addr+(addr&(block_len-1)), block_len);
-			for (uint32_t i = addr & (block_len-1); i < block_len; i++) {
-				uint32_t w = read_word(addr + i);
-				if (w != 0xffff) {
-					iprintf("[vkart] dirty word %04lx at pos %lu (abs %08lx) in block %d\r\n", w, i, addr+i, block);
-					dirty = 1;
-					break;
-				}
-			}
-			if (dirty) {
-				iprintf("[vkart] block %d is dirty\r\n", block);
-				vkart_sectors[block] = DIRTY;
-			} else {
-				iprintf("[vkart] block %d is clean\r\n", block);
-				vkart_sectors[block] = CLEAN;
-			}
-		}
-		if (vkart_sectors[block] == DIRTY) {
-			vkart_erase_sector(addr, block);
-		}
-		//display_blocks();
-		if (support_double) {
-			iprintf("[vkart] double write at %08lx from buf %p\r\n", addr, pbuf);
-			//hexdump(pbuf, 128);
-			for (uint32_t i = 0; i < len_do; i+=2) {
-				//if (i % 16 == 0) iprintf("\r\n%08lx: ", (addr+i));
-				//iprintf("%04x %04x ", pbuf[i], pbuf[i+1]);
-				write_word_29w(addr+i, pbuf[i], pbuf[i+1]);
-				WAIT_SOME();
-				WAIT_SOME();
-				WAIT_SOME();
-			}
-			vkart_sectors[block] = DIRTY;
+		if (failed) {
+			iprintf("[vkart] wrimage: selfcheck recover: erasing & writing buffer, len %08lx\r\n",
+					wrimage.off_in_block + todo);
+			wrimage.act_typ = ERASE_REWRITE_FULL;
+			vkart_erase_sector(wrimage.blockaddr, wrimage.block);
+
+			vkart_write_data(wrimage_buf, wrimage.blockaddr, wrimage.off_in_block + todo);
 		} else {
-			iprintf("[vkart] single\r\n");
-			for (uint32_t i = 0; i < len; i++) {
-				write_word_mx(addr+i, pbuf[i]);
-				WAIT_SOME();
-				WAIT_SOME();
-				WAIT_SOME();
-			}
+			iprintf("[vkart] wrimage: same check passed, continuing...\r\n");
 		}
-		iprintf("[vkart] prog %ld words done at %08lx\r\n", len, addr);
 	}
+
+	wrimage.off_in_block += todo;
+	if (wrimage.off_in_block == wrimage.blocklen) {
+		start_new_sector();
+	}
+
+	if (!end && len > todo) {
+		// there's more left -> do that as well
+		iprintf("[vkart] wrimage: tailcall!\r\n");
+
+		return vkart_wrimage_next(pbuf + todo, len - todo); // tailcall
+	} else return end;
+}
+void vkart_wrimage_finish(void) {
+	if (wrimage.block == 0xff) return;
+
+	wrimage.block = 0xff;
+
+	iprintf("[vkart] wrimage: done\r\n");
 }
 
