@@ -103,7 +103,7 @@ uint32_t tud_dfu_get_timeout_cb(uint8_t alt, uint8_t state) {
 	const uint32_t timeout_busy
 		= 90 /* erase time 90ms */
 		+ 350/*328*/ /* double write: 20us * 16k pages */
-		+ 10 /* CRC calc? */
+		+ 1000 /* CRC calc? */
 		;
 	const uint32_t timeout_manifest = 1000; // TODO: fill this in when we actually calculate a CRC or anything
 
@@ -150,7 +150,7 @@ void tud_dfu_download_cb(uint8_t alt, uint16_t block_num, uint8_t const* data, u
 
 	if (!state.stop) {
 		state.crcacc = crc32(state.crcacc, data, len);
-		iprintf("[DFU] CRC at %08lx is: %08lx\r\n", state.offset, state.crcacc);
+		//iprintf("[DFU] CRC at %08lx is: %08lx\r\n", state.offset, state.crcacc);
 		state.stop = vkart_wrimage_next((const uint16_t*)data, len >> 1);
 		state.offset += len;
 	}
@@ -188,7 +188,7 @@ void tud_dfu_manifest_cb(uint8_t alt) {
 
 		vkart_read_data(block >> 1, vkart_data_buffer, todo >> 1);
 		check_acc = crc32(check_acc, vkart_data_buffer, todo);
-		iprintf("[DFU] check CRC at %08lx is: %08lx\r\n", block, check_acc);
+		//iprintf("[DFU] check CRC at %08lx is: %08lx\r\n", block, check_acc);
 	}
 
 	iprintf("[DFU] CRC manifest check: %08lx (write) vs %08lx (check)\r\n", state.crcacc, check_acc);

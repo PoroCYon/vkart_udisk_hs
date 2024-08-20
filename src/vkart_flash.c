@@ -21,7 +21,7 @@ static void erase_block(uint32_t addr);
 //static void erase_chip();
 static uint16_t read_word(uint32_t address);
 static uint16_t get_device_id(void);
-static void do_reset();
+static void do_reset(void);
 
 /*
  * MX commands
@@ -97,9 +97,11 @@ static struct {
 	uint16_t blocklen;
 	uint8_t block;
 	uint8_t act_typ; // sector_action_type
+	bool new_sector;
 } wrimage = {
 	.block = 0xff,
-	.act_typ = 0
+	.act_typ = 0,
+	.new_sector = false
 };
 
 
@@ -153,7 +155,7 @@ bool vkart_init(void) {
 	GPIOE->CFGLR = 0x44444333;
 
 	do_reset();
-	//Delay_Ms(10);
+	Delay_Ms(10);
 	uint16_t devid = get_device_id();
 	iprintf("[vkart] device id %04x\r\n", devid);
 	if (devid == 0x0000) return false;
@@ -337,10 +339,10 @@ static void erase_block(uint32_t addr) {
 		}
 	} */
 	Delay_Ms(900);
-	iprintf("[vkart] End erase block %08lx st=%02x\r\n", addr, q);
+	//iprintf("[vkart] End erase block %08lx st=%02x\r\n", addr, q);
 }
 
-static uint16_t get_device_id() {
+static uint16_t get_device_id(void) {
 	//iprintf("[vkart] -- get_device_id --\r\n");
 	write_word(0x555, 0xAA);
 	write_word(0x2AA, 0x55);
@@ -348,7 +350,7 @@ static uint16_t get_device_id() {
 	set_data_dir(DATA_READ);
 	return read_word(0x1);
 }
-static void do_reset() {
+static void do_reset(void) {
 	write_word(0x0, 0x00f0);
 }
 
@@ -388,14 +390,9 @@ void vkart_write_data(const uint16_t *pbuf, uint32_t addr, uint32_t len) {
 	//iprintf("[vkart] prog %ld words done at %08lx\r\n", len, addr);
 }
 
-static void start_new_sector(void) {
-	wrimage.blockaddr += wrimage.blocklen;
-	struct len_and_block lab = info_of_address(wrimage.blockaddr);
-	wrimage.block = lab.block;
-	wrimage.blocklen = lab.len;
-	wrimage.off_in_block = 0;
-
-	//iprintf("[vkart] wrimage: new sector %08lx %d len %06x\r\n", wrimage.blockaddr, wrimage.block, wrimage.blocklen);
+static void check_new_sector(void) {
+	if (!wrimage.new_sector) return;
+	wrimage.new_sector = false;
 
 	bool blank = true;
 	set_data_dir(DATA_READ);
@@ -424,12 +421,24 @@ static void start_new_sector(void) {
 		vkart_erase_sector(wrimage.blockaddr, wrimage.block);
 	}
 }
+static void start_new_sector(void) {
+	wrimage.blockaddr += wrimage.blocklen;
+	struct len_and_block lab = info_of_address(wrimage.blockaddr);
+	wrimage.block = lab.block;
+	wrimage.blocklen = lab.len;
+	wrimage.off_in_block = 0;
+
+	//iprintf("[vkart] wrimage: new sector %08lx %d len %06x\r\n", wrimage.blockaddr, wrimage.block, wrimage.blocklen);
+
+	wrimage.new_sector = true;
+}
 
 bool vkart_wrimage_start(void) {
 	if (wrimage.block != 0xff) return false;
 
 	iprintf("[vkart] wrimage: start\r\n");
 
+	wrimage.new_sector = false;
 	wrimage.blockaddr = 0;
 	wrimage.blocklen = 0;
 	start_new_sector();
@@ -452,6 +461,8 @@ bool vkart_wrimage_next(const uint16_t* pbuf, uint32_t len) {
 	if (end) {
 		iprintf("[vkart] wrimage: REACHES END\r\n");
 	}
+
+	check_new_sector();
 
 	if (wrimage.act_typ == ERASE_REWRITE_FULL || wrimage.act_typ == WAS_ERASED) {
 		vkart_write_data(pbuf, wrimage.blockaddr + wrimage.off_in_block, todo);
@@ -488,6 +499,10 @@ bool vkart_wrimage_next(const uint16_t* pbuf, uint32_t len) {
 
 	wrimage.off_in_block += todo;
 	if (wrimage.off_in_block == wrimage.blocklen) {
+		if (end) { // we've reached the end of our flash memory, need to stop
+			return end;
+		}
+
 		start_new_sector();
 	}
 
@@ -502,6 +517,7 @@ void vkart_wrimage_finish(void) {
 	if (wrimage.block == 0xff) return;
 
 	wrimage.block = 0xff;
+	wrimage.new_sector = false;
 
 	iprintf("[vkart] wrimage: done\r\n");
 }

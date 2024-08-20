@@ -35,6 +35,7 @@ int main(void) {
 		while (1) asm volatile("":::"memory");
 	}
 
+	iprintf("inited vkart\r\n");
 	led_blinker_set(led_waiting);
 	tusb_app_init();
 
