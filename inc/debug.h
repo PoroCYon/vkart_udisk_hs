@@ -31,5 +31,10 @@ void Delay_Us (uint32_t n);
 void Delay_Ms (uint32_t n);
 void uart_init_dbg(void);
 
+#ifndef DEBUG
+#define printf(...) do{}while(0)
+#define iprintf(...) do{}while(0)
+#endif
+
 #endif
 

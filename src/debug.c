@@ -24,6 +24,7 @@
 #define USART_DBG USART3
 #endif
 
+#ifdef DEBUG
 NO_ASAN_PUBLIC void uart_init_dbg(void) {
 #if DEBUG == DEBUG_UART1
 	// pin A9
@@ -116,31 +117,33 @@ NO_ASAN_PUBLIC void __asan_ReportError(uint32_t ra, const char* typ, void *addre
 	HANG();
 }
 
+NO_ASAN_PUBLIC __attribute__((used)) int _write(int fd, char *buf, int size) {
+	uart_writebuf(buf, size);
+
+	return size;
+}
+#else
+#define uart_writebuf(src_, t) do{}while(0)
+#define uart_writestr(src_) do{}while(0)
+#define uart_writehex(v) do{}while(0)
+
+NO_ASAN_PUBLIC void __asan_ReportGenericError(uint32_t ra, const char* typ) {}
+NO_ASAN_PUBLIC void __asan_NOT_IMPL(uint32_t ra, const char* typ) {}
+NO_ASAN_PUBLIC void __asan_ReportError(uint32_t ra, const char* typ, void *address, size_t size, rw_mode_e mode) {}
+
+NO_ASAN_PUBLIC __attribute__((used)) int _write(int fd, char *buf, int size) {
+	return size;
+}
+#endif
 
 static uint8_t  p_us = 0;
 static uint16_t p_ms = 0;
 
-/*********************************************************************
- * @fn      Delay_Init
- *
- * @brief   Initializes Delay Funcation.
- *
- * @return  none
- */
 NO_ASAN_PUBLIC void Delay_Init(void) {
 	p_us = SystemCoreClock / 8000000;
 	p_ms = (uint16_t)p_us * 1000;
 }
 
-/*********************************************************************
- * @fn      Delay_Us
- *
- * @brief   Microsecond Delay Time.
- *
- * @param   n - Microsecond number.
- *
- * @return  None
- */
 NO_ASAN_PUBLIC void Delay_Us(uint32_t n) {
 	SysTick->SR &= ~(1 << 0);
 	uint32_t i = (uint32_t)n * p_us;
@@ -153,15 +156,6 @@ NO_ASAN_PUBLIC void Delay_Us(uint32_t n) {
 	SysTick->CTLR &= ~(1 << 0);
 }
 
-/*********************************************************************
- * @fn      Delay_Ms
- *
- * @brief   Millisecond Delay Time.
- *
- * @param   n - Millisecond number.
- *
- * @return  None
- */
 NO_ASAN_PUBLIC void Delay_Ms(uint32_t n) {
 	SysTick->SR &= ~(1 << 0);
 	uint32_t i = (uint32_t)n * p_ms;
@@ -174,29 +168,6 @@ NO_ASAN_PUBLIC void Delay_Ms(uint32_t n) {
 	SysTick->CTLR &= ~(1 << 0);
 }
 
-/*********************************************************************
- * @fn      _write
- *
- * @brief   Support Printf Function
- *
- * @param   *buf - UART send Data.
- *          size - Data length
- *
- * @return  size: Data length
- */
-NO_ASAN_PUBLIC __attribute__((used)) int _write(int fd, char *buf, int size) {
-	uart_writebuf(buf, size);
-
-	return size;
-}
-
-/*********************************************************************
- * @fn      _sbrk
- *
- * @brief   Change the spatial position of data segment.
- *
- * @return  size: Data length
- */
 NO_ASAN_PUBLIC void *_sbrk(ptrdiff_t incr) {
 	extern char _end[];
 	extern char _heap_end[];

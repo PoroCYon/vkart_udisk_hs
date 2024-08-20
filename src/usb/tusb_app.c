@@ -2,6 +2,7 @@
 #include "ch32v30x.h"
 #include "tusb.h"
 #include "util.h"
+#include "debug.h"
 
 
 __attribute__((/*__interrupt__("WCH-Interrupt-fast"),*/ __naked__))

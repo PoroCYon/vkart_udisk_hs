@@ -1,6 +1,7 @@
 
 #include <stdio.h>
 
+#include "debug.h"
 #include "util.h"
 
 void hexdump(const void* src_, size_t len) {

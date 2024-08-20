@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "debug.h"
 #include "tusb.h"
 #include "ch32v30x.h"
 #include "util.h"
@@ -100,12 +101,8 @@ static void deinit_download(void) {
 // Application return timeout in milliseconds (bwPollTimeout) for the next download/manifest operation.
 // During this period, USB host won't try to communicate with us.
 uint32_t tud_dfu_get_timeout_cb(uint8_t alt, uint8_t state) {
-	const uint32_t timeout_busy
-		= 90 /* erase time 90ms */
-		+ 350/*328*/ /* double write: 20us * 16k pages */
-		+ 1000 /* CRC calc? */
-		;
-	const uint32_t timeout_manifest = 1000; // TODO: fill this in when we actually calculate a CRC or anything
+	const uint32_t timeout_busy = 20;
+	const uint32_t timeout_manifest = 300;
 
 	//iprintf(" [DFU] get timeout alt=%u state=%u\r\n", alt, state);
 	if (state == DFU_DNBUSY) {
@@ -153,10 +150,11 @@ void tud_dfu_download_cb(uint8_t alt, uint16_t block_num, uint8_t const* data, u
 		//iprintf("[DFU] CRC at %08lx is: %08lx\r\n", state.offset, state.crcacc);
 		state.stop = vkart_wrimage_next((const uint16_t*)data, len >> 1);
 		state.offset += len;
+		//iprintf("[DFU] write done\r\n");
 	}
-	if (state.stop) {
+	/*if (state.stop) {
 		iprintf("[DFU] STOP!\r\n");
-	}
+	}*/
 
 	// flashing op for download complete without error
 	tud_dfu_finish_flashing(DFU_STATUS_OK);
@@ -168,7 +166,7 @@ void tud_dfu_download_cb(uint8_t alt, uint16_t block_num, uint8_t const* data, u
 // Once finished flashing, application must call tud_dfu_finish_flashing()
 void tud_dfu_manifest_cb(uint8_t alt) {
 	(void)alt;
-	iprintf("[DFU] manifest\r\n");
+	//iprintf("[DFU] manifest\r\n");
 
 	if (state.curact != act_download) {
 		tud_dfu_finish_flashing(DFU_STATUS_ERR_UNKNOWN);
@@ -176,7 +174,6 @@ void tud_dfu_manifest_cb(uint8_t alt) {
 	}
 
 	vkart_wrimage_finish();
-	//add_data_block(NULL, 0);
 
 	uint32_t check_acc = CRC32_INITIAL;
 	uint32_t total_len_b = state.offset;

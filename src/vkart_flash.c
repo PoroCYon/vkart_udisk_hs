@@ -1,6 +1,7 @@
 
 #include "ch32v30x.h"
 #include "vkart_flash.h"
+#include "debug.h"
 #include "util.h"
 
 #include <stdbool.h>
@@ -323,8 +324,8 @@ static void erase_block(uint32_t addr) {
 	write_word(0x02aa, 0x55);
 	write_word(addr, 0x30);
 
-	uint8_t q = 0;
-	/*
+	/*uint8_t q = 0;
+	
 	set_data_dir(DATA_READ);
 	while (1) {
 		q = read_word(addr);
@@ -405,8 +406,10 @@ static void check_new_sector(void) {
 	}
 
 	if (blank) {
+		set_data_dir(DATA_WRITE);
 		wrimage.act_typ = WAS_ERASED;
-		iprintf("[vkart] wrimage: clean, only write\r\n");
+		iprintf("[vkart] wrimage: clean, only write for %08lx (block %d len %06x)\r\n",
+				wrimage.blockaddr, wrimage.block, wrimage.blocklen);
 	} else if (wrimage.blocklen > VKART_BUFFER_WORDSZ) {
 		// can't buffer, so can't do a wear-levelling check -> no other choice
 		// but to erase the entire sector.

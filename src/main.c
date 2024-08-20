@@ -20,7 +20,7 @@ int main(void) {
 	uart_init_dbg();
 	Delay_Ms(10);
 
-	iprintf("USBD Udisk\r\nStorage Medium: VKART Flash\r\n");
+	//iprintf("USBD Udisk\r\nStorage Medium: VKART Flash\r\n");
 	//iprintf("SystemClk:%ld\r\n",SystemCoreClock);
 	//iprintf("ChipID:%08x\r\n", DBGMCU_GetCHIPID());
 
